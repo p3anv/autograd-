@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://isocpp.org/std/the-standard)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/yourusername/autograd-tensor-library/actions)
-[![codecov](https://img.shields.io/codecov/c/github/yourusername/autograd-tensor-library)](https://codecov.io/gh/yourusername/autograd-tensor-library)
-[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://yourusername.github.io/autograd-tensor-library)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#-continuous-integration)
+[![codecov](https://img.shields.io/badge/coverage-%25-brightgreen)](#-testing)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](#-documentation)
 
 A high-performance, CPU-optimized N-dimensional tensor library with reverse-mode automatic differentiation (autograd) implemented from scratch in modern C++20.
 
@@ -50,7 +50,7 @@ AutoGrad++ is designed to train a Multi-Layer Perceptron (MLP) on MNIST with >95
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/autograd-tensor-library.git
+git clone https://github.com/p3anv/autograd-.git
 cd autograd-tensor-library
 
 # Create and enter build directory
@@ -89,7 +89,7 @@ ctest --output-on-failure
 - [Design Document](design.md)
 - [Implementation Phases](phases.md)
 - [Development Rules](rules.md)
-- [API Reference](https://yourusername.github.io/autograd-tensor-library) *(generated with Doxygen)*
+- [API Reference](https://<your-username>.github.io/autograd-tensor-library) *(generated with Doxygen)*
 
 ---
 
