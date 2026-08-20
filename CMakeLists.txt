@@ -85,6 +85,7 @@ if(BUILD_TESTING)
         tests/test_storage.cpp
         tests/test_tensor_impl.cpp
         tests/test_tensor.cpp
+        tests/hardcore_test.cpp
     )
 
     target_include_directories(autograd_tests

@@ -57,7 +57,7 @@ TensorImpl::make_contiguous(std::vector<std::size_t> shape)
     // Check for overflow in shape product
     std::size_t total_elements = 1;
     for (std::size_t dim : shape) {
-        if (total_elements > std::size_t(-1) / dim) {
+        if (dim != 0 && total_elements > std::size_t(-1) / dim) {
             throw std::invalid_argument("Tensor shape too large: overflow in element count");
         }
         total_elements *= dim;
@@ -82,7 +82,7 @@ std::size_t TensorImpl::numel() const
 {
     std::size_t total = 1;
     for (std::size_t dim : shape_) {
-        if (total > std::size_t(-1) / dim) {
+        if (dim != 0 && total > std::size_t(-1) / dim) {
             // Overflow protection - though constructor should have caught this
             return 0;
         }
