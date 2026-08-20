@@ -1,0 +1,115 @@
+# Build directories
+/build/
+/*build*/
+CMakeCache.txt
+CMakeFiles/
+*/CMakeFiles/
+*/CMakeCache.txt
+CTestTestfile.cmake
+DartConfiguration.tcl
+Makefile
+cmake_install.cmake
+install_manifest.txt
+
+# Compiled object files
+*.o
+*.lo
+*.la
+*.obj
+*.exe
+*.out
+*.app
+
+# Precompiled headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Vim swap files
+*.swp
+
+# Valgrind output
+valgrind.out
+vgcore.*
+
+# Google Test and Google Benchmark downloaded by FetchContent
+_fetchcontent/
+_Deps/
+
+# IDE directories
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Compiler-specific files
+*.pdb
+*.idb
+*.ilk
+*.map
+*.exp
+
+# Coverage reports
+*.gcda
+*.gcno
+gcov/
+coverage/
+*.info
+*.cov
+
+# Temporary and backup files
+*~
+*.tmp
+*.temp
+*.bak
+*.backup
+.#*
+
+# Dependency directories (if using package managers)
+.vcpkg/
+conanbuildinfo.txt
+conaninfo.txt
+conanmanifest.txt
+
+# Environment files
+.env
+.env.*
+!.env.example  # Keep example env files
+
+# Documentation builds
+docs/
+html/
+latex/
+doc/
+doxygen/
+
+# Miscellaneous
+*.orig
+*.rej
+*.patch
+*.diff
+
+# CLion cmake-build-*
+cmake-build-*/
