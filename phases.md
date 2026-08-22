@@ -510,9 +510,3 @@ the locked PRD v1.3, Design v7.0, and Rules v1.2:
 | `phases.md` | v2.1 | Locked |
 
 ---
-
-### 🚀 Next Step
-
-`phases.md v2.1` is the authoritative implementation roadmap.
-
-The next implementation milestone is **Phase 0: Project Setup**. No phase may begin until the preceding phase's acceptance criteria and implementation gates have passed.

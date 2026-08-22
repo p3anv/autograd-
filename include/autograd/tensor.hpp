@@ -62,9 +62,31 @@ public:
     Tensor reshape(std::vector<std::size_t> shape) const;
     Tensor contiguous() const;
 
+    // Tensor methods needed for autograd
+    Tensor to_float() const;
+    Tensor sum(std::size_t dim, bool keepdim = false) const;
+    Tensor sum() const;
+    Tensor clamp(const Tensor& min, const Tensor& max) const;
+    Tensor transpose() const; // assumes 2D tensor
+    Tensor matmul(const Tensor& other) const; // assumes 2D tensors
+    Tensor log() const;
+    Tensor neg() const;
+    Tensor sqrt() const;
+    Tensor pow(const Tensor& exponent) const;
+    float item() const;
+
     // Operators (to be implemented)
     Tensor operator+(const Tensor& other) const;
+    Tensor operator-(const Tensor& other) const;
+    Tensor operator-() const; // unary minus
     Tensor operator*(const Tensor& other) const;
+    Tensor operator/(const Tensor& other) const;
+    Tensor operator==(const Tensor& other) const;
+    Tensor operator!=(const Tensor& other) const;
+    Tensor operator<(const Tensor& other) const;
+    Tensor operator<=(const Tensor& other) const;
+    Tensor operator>(const Tensor& other) const;
+    Tensor operator>=(const Tensor& other) const;
 
     // Internal access only; not part of the public user API.
     std::shared_ptr<TensorImpl> impl() const noexcept { return impl_; }

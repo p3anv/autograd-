@@ -10,7 +10,7 @@ DartConfiguration.tcl
 Makefile
 cmake_install.cmake
 install_manifest.txt
-
+CLAUDE.md 
 # Compiled object files
 *.o
 *.lo
@@ -23,6 +23,7 @@ install_manifest.txt
 # Precompiled headers
 *.gch
 *.pch
+
 
 # Compiled Dynamic libraries
 *.so

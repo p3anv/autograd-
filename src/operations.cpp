@@ -946,18 +946,22 @@ Tensor softmax(const Tensor& a) {
 }
 
 // Reductions
-Tensor sum(const Tensor& a, std::size_t dim) {
+Tensor sum(const Tensor& a, std::size_t dim, bool keepdim) {
     // Validate dimension
     if (dim >= a.dim()) {
         throw std::invalid_argument("Dimension out of range");
     }
 
-    // Compute output shape: same as input but with dim dimension removed
-    // (following NumPy convention where sum over size-0 dimension removes it)
+    // Compute output shape
     std::vector<std::size_t> input_shape = a.shape();
     std::vector<std::size_t> output_shape;
     for (std::size_t i = 0; i < input_shape.size(); ++i) {
-        if (i != dim) {
+        if (i == dim) {
+            if (keepdim) {
+                output_shape.push_back(1);
+            }
+            // If not keepdim, we skip this dimension
+        } else {
             output_shape.push_back(input_shape[i]);
         }
     }
@@ -984,34 +988,45 @@ Tensor sum(const Tensor& a, std::size_t dim) {
     // For each output element, compute the sum along the specified dimension
     std::size_t total_output_elements = result.numel();
     for (std::size_t i = 0; i < total_output_elements; ++i) {
-        // Compute the offset in the input tensor for this output element
-        std::size_t input_offset = 0;
+        // Compute input coordinates for this output element
+        std::vector<std::size_t> input_coords(input_shape.size(), 0);
         std::size_t remaining = i;
 
-        // Compute coordinates in output tensor
-        std::vector<std::size_t> output_coords(output_shape.size());
+        // Work backwards through output dimensions to get coordinates
         for (int j = static_cast<int>(output_shape.size()) - 1; j >= 0; --j) {
-            output_coords[j] = remaining % output_shape[j];
+            std::size_t out_coord = remaining % output_shape[j];
             remaining /= output_shape[j];
-        }
 
-        // Map output coordinates to input coordinates (skipping the reduced dimension)
-        std::size_t input_offset_mapped = 0;
-        std::size_t in_idx = 0;
-        for (std::size_t j = 0; j < input_shape.size(); ++j) {
-            if (j == dim) {
-                // Skip the reduced dimension
-                continue;
+            // Map output coordinate to input coordinate
+            std::size_t in_idx = 0;
+            std::size_t adjusted_out_coord = out_coord;
+            for (std::size_t k = 0; k < input_shape.size(); ++k) {
+                if (k == dim) {
+                    // Skip the reduced dimension
+                    continue;
+                }
+                if (in_idx == j) {
+                    input_coords[k] = adjusted_out_coord;
+                    break;
+                }
+                in_idx++;
             }
-            input_offset_mapped += output_coords[in_idx] * input_strides[j];
-            in_idx++;
         }
 
-        // Now compute the sum along the specified dimension for this output location
+        // No insertion needed; input_coords already has the correct shape.
+
+        // Now compute the sum along the specified dimension
         float sum_val = 0.0f;
         for (std::size_t j = 0; j < dim_size; ++j) {
-            // Compute input offset: base_offset + j * stride_of_dim_in_input
-            std::size_t offset = input_offset_mapped + j * input_strides[dim];
+            // Set the coordinate for the dimension we're summing over
+            input_coords[dim] = j;
+
+            // Compute offset in input tensor
+            std::size_t offset = 0;
+            for (std::size_t k = 0; k < input_shape.size(); ++k) {
+                offset += input_coords[k] * input_strides[k];
+            }
+
             sum_val += input_data[offset];
         }
 
@@ -1124,7 +1139,6 @@ Tensor max(const Tensor& a, std::size_t dim) {
     std::size_t total_output_elements = result.numel();
     for (std::size_t i = 0; i < total_output_elements; ++i) {
         // Compute the offset in the input tensor for this output element
-        std::size_t input_offset = 0;
         std::size_t remaining = i;
 
         // Compute coordinates in output tensor
@@ -1220,7 +1234,6 @@ Tensor min(const Tensor& a, std::size_t dim) {
     std::size_t total_output_elements = result.numel();
     for (std::size_t i = 0; i < total_output_elements; ++i) {
         // Compute the offset in the input tensor for this output element
-        std::size_t input_offset = 0;
         std::size_t remaining = i;
 
         // Compute coordinates in output tensor
@@ -1369,6 +1382,263 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
         }
     }
 
+    return result;
+}
+
+Tensor sum_all(const Tensor& a) {
+    // Sum over all dimensions to produce a scalar tensor.
+    std::size_t total = a.numel();
+    if (total == 0) {
+        return Tensor({}, false); // scalar empty? Actually scalar shape is {}
+    }
+    // Create a scalar result tensor
+    Tensor result(std::vector<std::size_t>{}, false); // scalar
+    float* res_data = result.data();
+    const float* input_data = a.data();
+    float sum = 0.0f;
+    for (std::size_t i = 0; i < total; ++i) {
+        sum += input_data[i];
+    }
+    *res_data = sum;
+    return result;
+}
+
+Tensor transpose(const Tensor& a) {
+    // Assumes 2D tensor
+    if (a.dim() != 2) {
+        throw std::invalid_argument("transpose only supports 2D tensors");
+    }
+    std::size_t rows = a.shape()[0];
+    std::size_t cols = a.shape()[1];
+    Tensor result({cols, rows}, false);
+    const float* input_data = a.data();
+    float* output_data = result.data();
+    for (std::size_t i = 0; i < rows; ++i) {
+        for (std::size_t j = 0; j < cols; ++j) {
+            output_data[j * rows + i] = input_data[i * cols + j];
+        }
+    }
+    return result;
+}
+
+Tensor clamp(const Tensor& input, const Tensor& min, const Tensor& max) {
+    // Element-wise clamp: output = min(max(input, min), max)
+    // We can compute this using comparison operators and masked selection.
+    // Step 1: Compute max(input, min) -> where input >= min, take input, else min
+    Tensor ge_mask = (input >= min); // 1 where input >= min, else 0
+    Tensor lt_mask = Tensor::scalar(1.0f) - ge_mask; // 1 where input < min, else 0
+    Tensor tmp = ge_mask * input + lt_mask * min; // max(input, min)
+
+    // Step 2: Compute min(tmp, max) -> where tmp <= max, take tmp, else max
+    Tensor le_mask = (tmp <= max); // 1 where tmp <= max, else 0
+    Tensor gt_mask = Tensor::scalar(1.0f) - le_mask; // 1 where tmp > max, else 0
+    Tensor result = le_mask * tmp + gt_mask * max; // min(tmp, max)
+
+    return result;
+}
+
+// Helper comparison functions for element-wise comparison
+Tensor greater(const Tensor& a, const Tensor& b) {
+    // Broadcast shapes
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in greater");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    // Compute strides for broadcasting
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        std::size_t remaining = linear;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val > b_val) ? 1.0f : 0.0f;
+        // Increment result_indices
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+Tensor lesser(const Tensor& a, const Tensor& b) {
+    // Similar to greater but <
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in lesser");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        std::size_t remaining = linear;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val < b_val) ? 1.0f : 0.0f;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+Tensor equal(const Tensor& a, const Tensor& b) {
+    // Element-wise equality
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in equal");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        std::size_t remaining = linear;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        // Use a small epsilon for floating point equality? For now, exact equality.
+        result_data[linear] = (a_val == b_val) ? 1.0f : 0.0f;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
     return result;
 }
 
