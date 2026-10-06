@@ -105,7 +105,7 @@ std::vector<Tensor> AddBackward::backward(const std::vector<Tensor>& grad_output
         grad_b = Tensor::scalar(grad_output.sum().item());
     }
 
-    return {grad_a, grad_b};
+    return {grad_a.detach(), grad_b.detach()};
 }
 
 // SubBackward
@@ -189,7 +189,7 @@ std::vector<Tensor> SubBackward::backward(const std::vector<Tensor>& grad_output
         grad_b = Tensor::scalar(-grad_output.sum().item());
     }
 
-    return {grad_a, grad_b};
+    return {grad_a.detach(), grad_b.detach()};
 }
 
 // MulBackward
@@ -226,13 +226,16 @@ MulBackward::MulBackward(const Tensor& a, const Tensor& b)
 std::vector<Tensor> MulBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
     // dy/da = b, dy/db = a
-    Tensor grad_a = grad_output * b_;
-    Tensor grad_b = grad_output * a_;
+    // Need to detach a_ and b_ to avoid requiring gradients on intermediate results
+    Tensor b_detached = b_.detach();
+    Tensor a_detached = a_.detach();
+    Tensor grad_a = grad_output * b_detached;
+    Tensor grad_b = grad_output * a_detached;
 
     // Now we need to sum over broadcasted dimensions for each gradient.
     // For grad_a, we need to sum over dimensions where a was broadcasted.
     if (!a_.shape().empty()) {
-        grad_a = grad_output * b_;
+        grad_a = grad_output * b_detached;
         std::size_t a_ndim = a_.shape().size();
         std::size_t output_ndim = grad_output.shape().size();
         std::size_t offset = output_ndim - a_ndim;
@@ -250,12 +253,12 @@ std::vector<Tensor> MulBackward::backward(const std::vector<Tensor>& grad_output
             }
         }
     } else {
-        grad_a = Tensor::scalar((grad_output * b_).sum().item());
+        grad_a = Tensor::scalar((grad_output * b_detached).sum().item());
     }
 
     // For grad_b
     if (!b_.shape().empty()) {
-        grad_b = grad_output * a_;
+        grad_b = grad_output * a_detached;
         std::size_t b_ndim = b_.shape().size();
         std::size_t output_ndim = grad_output.shape().size();
         std::size_t offset = output_ndim - b_ndim;
@@ -273,10 +276,10 @@ std::vector<Tensor> MulBackward::backward(const std::vector<Tensor>& grad_output
             }
         }
     } else {
-        grad_b = Tensor::scalar((grad_output * a_).sum().item());
+        grad_b = Tensor::scalar((grad_output * a_detached).sum().item());
     }
 
-    return {grad_a, grad_b};
+    return {grad_a.detach(), grad_b.detach()};
 }
 
 // DivBackward
@@ -311,12 +314,14 @@ std::vector<Tensor> DivBackward::backward(const std::vector<Tensor>& grad_output
     Tensor grad_output = grad_outputs[0];
     // dy/da = 1/b
     // dy/db = -a/(b^2)
-    Tensor grad_a = grad_output / b_;
-    Tensor grad_b = -(grad_output * a_) / (b_ * b_);
+    Tensor b_detached = b_.detach();
+    Tensor a_detached = a_.detach();
+    Tensor grad_a = grad_output / b_detached;
+    Tensor grad_b = -(grad_output * a_detached) / (b_detached * b_detached);
 
     // Sum over broadcasted dimensions for grad_a
     if (!a_.shape().empty()) {
-        grad_a = grad_output / b_;
+        grad_a = grad_output / b_detached;
         std::size_t a_ndim = a_.shape().size();
         std::size_t output_ndim = grad_output.shape().size();
         std::size_t offset = output_ndim - a_ndim;
@@ -334,12 +339,12 @@ std::vector<Tensor> DivBackward::backward(const std::vector<Tensor>& grad_output
             }
         }
     } else {
-        grad_a = Tensor::scalar((grad_output / b_).sum().item());
+        grad_a = Tensor::scalar((grad_output / b_detached).sum().item());
     }
 
     // Sum over broadcasted dimensions for grad_b
     if (!b_.shape().empty()) {
-        grad_b = -(grad_output * a_) / (b_ * b_);
+        grad_b = -(grad_output * a_detached) / (b_detached * b_detached);
         std::size_t b_ndim = b_.shape().size();
         std::size_t output_ndim = grad_output.shape().size();
         std::size_t offset = output_ndim - b_ndim;
@@ -357,10 +362,10 @@ std::vector<Tensor> DivBackward::backward(const std::vector<Tensor>& grad_output
             }
         }
     } else {
-        grad_b = Tensor::scalar((-(grad_output * a_) / (b_ * b_)).sum().item());
+        grad_b = Tensor::scalar((-(grad_output * a_detached) / (b_detached * b_detached)).sum().item());
     }
 
-    return {grad_a, grad_b};
+    return {grad_a.detach(), grad_b.detach()};
 }
 
 // PowBackward
@@ -446,7 +451,7 @@ std::vector<Tensor> PowBackward::backward(const std::vector<Tensor>& grad_output
         grad_exp = Tensor::scalar((grad_output * (base_pow_exp * base_.log())).sum().item());
     }
 
-    return {grad_base, grad_exp};
+    return {grad_base.detach(), grad_exp.detach()};
 }
 
 // NegBackward
@@ -457,7 +462,7 @@ std::vector<Tensor> NegBackward::backward(const std::vector<Tensor>& grad_output
     Tensor grad_output = grad_outputs[0];
     Tensor grad_input = -grad_output;
     // No broadcasting to worry about because negation doesn't change shape
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // ExpBackward
@@ -467,9 +472,9 @@ ExpBackward::ExpBackward(const Tensor& output)
 std::vector<Tensor> ExpBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = exp(x) => dy/dx = exp(x) = y
     Tensor grad_output = grad_outputs[0];
-    Tensor grad_input = grad_output * output_;
+    Tensor grad_input = grad_output * output_.detach();
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // LogBackward
@@ -479,9 +484,9 @@ LogBackward::LogBackward(const Tensor& input)
 std::vector<Tensor> LogBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = ln(x) => dy/dx = 1/x
     Tensor grad_output = grad_outputs[0];
-    Tensor grad_input = grad_output / input_;
+    Tensor grad_input = grad_output / input_.detach();
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // SqrtBackward
@@ -492,10 +497,10 @@ std::vector<Tensor> SqrtBackward::backward(const std::vector<Tensor>& grad_outpu
     // y = sqrt(x) => dy/dx = 1/(2*sqrt(x))
     Tensor grad_output = grad_outputs[0];
     Tensor two = Tensor::scalar(2.0f);
-    Tensor sqrt_x = input_.sqrt();
+    Tensor sqrt_x = input_.detach().sqrt();
     Tensor grad_input = grad_output / (two * sqrt_x);
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // AbsBackward
@@ -508,11 +513,12 @@ std::vector<Tensor> AbsBackward::backward(const std::vector<Tensor>& grad_output
     Tensor zero = Tensor::scalar(0.0f);
     Tensor one = Tensor::scalar(1.0f);
     Tensor neg_one = Tensor::scalar(-1.0f);
-    Tensor pos_part = (input_ > zero).to_float(); // 1 where input>0, else 0
-    Tensor neg_part = (input_ < zero).to_float(); // 1 where input<0, else 0
+    Tensor input_detached = input_.detach();
+    Tensor pos_part = (input_detached > zero).to_float(); // 1 where input>0, else 0
+    Tensor neg_part = (input_detached < zero).to_float(); // 1 where input<0, else 0
     Tensor grad_input = grad_output * (pos_part - neg_part);
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // ReLUBackward
@@ -523,9 +529,10 @@ std::vector<Tensor> ReLUBackward::backward(const std::vector<Tensor>& grad_outpu
     // y = max(0, x) => dy/dx = 1 if x>0, else 0
     Tensor grad_output = grad_outputs[0];
     Tensor zero = Tensor::scalar(0.0f);
-    Tensor grad_input = grad_output * (input_ > zero).to_float();
+    Tensor input_detached = input_.detach();
+    Tensor grad_input = grad_output * (input_detached > zero).to_float();
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // SigmoidBackward
@@ -536,9 +543,10 @@ std::vector<Tensor> SigmoidBackward::backward(const std::vector<Tensor>& grad_ou
     // y = sigmoid(x) => dy/dx = y * (1 - y)
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
-    Tensor grad_input = grad_output * output_ * (one - output_);
+    Tensor output_detached = output_.detach();
+    Tensor grad_input = grad_output * output_detached * (one - output_detached);
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // TanhBackward
@@ -549,9 +557,10 @@ std::vector<Tensor> TanhBackward::backward(const std::vector<Tensor>& grad_outpu
     // y = tanh(x) => dy/dx = 1 - y^2
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
-    Tensor grad_input = grad_output * (one - output_ * output_);
+    Tensor output_detached = output_.detach();
+    Tensor grad_input = grad_output * (one - output_detached * output_detached);
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // SoftmaxBackward
@@ -563,12 +572,13 @@ std::vector<Tensor> SoftmaxBackward::backward(const std::vector<Tensor>& grad_ou
     // grad_input = grad_output * output - output * sum(grad_output * output, dim=-1, keepdim=True)
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
+    Tensor output_detached = output_.detach();
     // Compute sum over the last dimension
-    std::size_t last_dim = output_.shape().size() - 1;
-    Tensor sum_term = (grad_output * output_).sum(last_dim, true); // keepdim=true
-    Tensor grad_input = grad_output * output_ - output_ * sum_term;
+    std::size_t last_dim = output_detached.shape().size() - 1;
+    Tensor sum_term = (grad_output * output_detached).sum(last_dim, true); // keepdim=true
+    Tensor grad_input = grad_output * output_detached - output_detached * sum_term;
     // No broadcasting
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // SumBackward
@@ -650,7 +660,7 @@ std::vector<Tensor> SumBackward::backward(const std::vector<Tensor>& grad_output
     // So the method works even for zero-sized dimensions.
 
     // Return the gradient as a list with one element (since sum has one input).
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // MeanBackward
@@ -683,7 +693,7 @@ std::vector<Tensor> MeanBackward::backward(const std::vector<Tensor>& grad_outpu
     Tensor size = Tensor::scalar(static_cast<float>(input_shape_[dim_]));
     grad_input = grad_input / size;
 
-    return {grad_input};
+    return {grad_input.detach()};
 }
 
 // MaxBackward
@@ -694,91 +704,77 @@ MaxBackward::MaxBackward(const Tensor& input, const Tensor& output, std::size_t 
 
 std::vector<Tensor> MaxBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
-    // We need to find where the input equals the max (output) and distribute the gradient accordingly.
-    // For each position in the output, the gradient flows back to the position(s) in the input
-    // that had the maximum value in that slice along the reduced dimension.
-    // If there are multiple maxima, the gradient is split equally among them? Or we can choose
-    // to send the gradient to all maxima (as in PyTorch). We'll implement the latter:
-    // gradient is sent to all elements that equal the max in that slice.
+    // Detach inputs to avoid requiring gradients on intermediate results
+    Tensor input_detached = input_.detach();
+    Tensor output_detached = output_.detach();
 
-    // Steps:
-    // 1. Broadcast the output tensor to the input shape (inserting a dimension of size 1 at dim_)
-    //    and then expanding to the full size of the reduced dimension.
-    // 2. Compare the input tensor with the broadcasted output tensor to find where they are equal.
-    // 3. The gradient w.r.t. input is grad_output broadcasted to the input shape, but only at
-    //    positions where input == broadcasted_output, and zero elsewhere.
-    //    However, if there are multiple maxima, we need to split the gradient? Actually,
-    //    if we send the full gradient to all maxima, then the sum of gradients would be
-    //    (number of maxima) * grad_output, which is not correct.
-    //    The correct approach is to distribute the gradient equally among the maxima?
-    //    But the max function is not differentiable at points where there are multiple maxima.
-    //    In practice, frameworks like PyTorch compute the gradient as if the max is unique
-    //    by selecting the first occurrence (or using a subgradient). However, the common
-    //    practice in deep learning is to use the gradient as if the max is unique and
-    //    arbitrarily choose one index (e.g., the first). This is what we will do for simplicity.
-    //
-    //    Alternatively, we can note that the subgradient of the max function at a point with
-    //    multiple maxima is the set of vectors where the components corresponding to the
-    //    maxima are non-negative and sum to 1, and the other components are zero.
-    //    Choosing a particular subgradient (e.g., uniform distribution) is acceptable.
-    //    We'll choose to distribute the gradient equally among all maxima.
-    //
-    //    However, to keep it simple and match common implementations, we will assume that
-    //    the max is unique (or we break ties by taking the first). We'll implement by
-    //    creating a mask that is 1 at the first occurrence of the max in each slice and 0 elsewhere.
-    //
-    //    Given the complexity and time, we will implement a simple version that works for
-    //    the case where the max is unique (which is typical in practice with random data).
-    //    We will leave a note that this needs improvement for handling multiple maxima.
-    //
-    //    For now, we will implement by:
-    //    - Creating a tensor of zeros with the input shape.
-    //    - For each slice along the reduced dimension, find the index of the first occurrence
-    //      of the max value (which is the output value for that slice).
-    //    - Set the gradient at that index to the grad_output value for that slice.
-    //
-    //    This is not fully correct but will work for many cases.
-    //
-    //    A better approach would be to use the fact that the max operation can be thought of
-    //    as: y = max(x, dim) and then the backward pass is:
-    //    grad_x = (x == y_expanded) * grad_y_expanded / sum(x == y_expanded, dim, keepdim=True)
-    //    where y_expanded is y broadcasted to the shape of x.
-    //    This distributes the gradient equally among all maxima.
-    //    We'll implement this version.
+    // Create a zero gradient tensor with the input shape
+    Tensor grad_input = Tensor::zeros(input_detached.shape(), false);
 
-    // Step 1: Expand grad_output to the input shape by inserting a dimension of size 1 at dim_
-    //         and then expanding to the full size.
-    std::vector<std::size_t> expanded_shape = input_.shape();
-    expanded_shape[dim_] = 1;
-    Tensor expanded_grad_output = grad_output.reshape(expanded_shape);
-    // Now we need to expand the reduced dimension to the full size.
-    // We can do this by repeating the values along that dimension.
-    // However, we can use broadcasting in multiplication: if we multiply by a tensor of ones
-    // with the same shape as input_, it will broadcast.
-    Tensor ones = Tensor::ones(input_.shape(), false);
-    Tensor grad_output_expanded = ones * expanded_grad_output; // This broadcasts expanded_grad_output to the shape of input_
+    // Get the shape info
+    const std::vector<std::size_t>& input_shape = input_detached.shape();
+    std::size_t ndim = input_shape.size();
 
-    // Step 2: Create a mask where input_ equals the max (which is output_ expanded to input shape)
-    //         We need to expand the output tensor to the input shape for comparison.
-    std::vector<std::size_t> output_expanded_shape = input_.shape();
-    output_expanded_shape[dim_] = 1;
-    Tensor output_expanded = output_.reshape(output_expanded_shape);
-    Tensor ones_for_output = Tensor::ones(input_.shape(), false);
-    Tensor output_expanded_full = ones_for_output * output_expanded; // Broadcast output to input shape
+    // Calculate the number of elements in the reduced dimension
+    std::size_t dim_size = input_shape[dim_];
 
-    // Step 3: Create a boolean mask where input_ equals output_expanded_full
-    Tensor mask = (input_ == output_expanded_full).to_float();
+    // Calculate the number of slices (total elements / dim_size)
+    std::size_t num_slices = input_detached.numel() / dim_size;
 
-    // Step 4: Count the number of maxima along the reduced dimension for each slice.
-    //         We sum the mask along the reduced dimension.
-    Tensor mask_sum = mask.sum(dim_, true); // keepdim=true
+    // Get data pointers
+    const float* input_data = input_detached.data();
+    const float* output_data = output_detached.data();
+    const float* grad_output_data = grad_output.data();
+    float* grad_input_data = grad_input.data();
 
-    // Step 5: To avoid division by zero, we clamp the mask_sum to at least 1.
-    //         However, if there are no elements (should not happen), we set to 1.
-    Tensor mask_sum_clamped = mask_sum.clamp(Tensor::scalar(1.0f), Tensor::scalar(std::numeric_limits<float>::max()));
+    // Compute strides for the input tensor
+    std::vector<std::size_t> strides(ndim, 1);
+    for (int i = static_cast<int>(ndim) - 2; i >= 0; --i) {
+        strides[i] = strides[i + 1] * input_shape[i + 1];
+    }
 
-    // Step 6: The gradient w.r.t. input is (mask * grad_output_expanded) / mask_sum_clamped
-    Tensor grad_input = (mask * grad_output_expanded) / mask_sum_clamped;
+    // For each slice, find the first occurrence of max and set gradient there
+    for (std::size_t slice_idx = 0; slice_idx < num_slices; ++slice_idx) {
+        // Compute the base index for this slice
+        std::vector<std::size_t> slice_coords(ndim, 0);
+        std::size_t remaining = slice_idx;
+        for (int i = static_cast<int>(ndim) - 1; i >= 0; --i) {
+            if (static_cast<std::size_t>(i) == dim_) continue;
+            std::size_t dim_stride = 1;
+            for (std::size_t j = i + 1; j < ndim; ++j) {
+                if (j != dim_) {
+                    dim_stride *= input_shape[j];
+                }
+            }
+            slice_coords[i] = remaining / dim_stride;
+            remaining %= dim_stride;
+        }
+
+        // Find the first occurrence of the max value in this slice
+        std::size_t max_pos = 0;
+        float max_val = input_data[0]; // Will be overwritten
+
+        // Compute base offset for this slice
+        std::size_t base_offset = 0;
+        for (std::size_t i = 0; i < ndim; ++i) {
+            if (i != dim_) {
+                base_offset += slice_coords[i] * strides[i];
+            }
+        }
+
+        max_val = input_data[base_offset];
+        for (std::size_t i = 1; i < dim_size; ++i) {
+            std::size_t idx = base_offset + i * strides[dim_];
+            if (input_data[idx] > max_val) {
+                max_val = input_data[idx];
+                max_pos = i;
+            }
+        }
+
+        // Set gradient at the max position
+        std::size_t grad_idx = base_offset + max_pos * strides[dim_];
+        grad_input_data[grad_idx] = grad_output_data[slice_idx];
+    }
 
     return {grad_input};
 }
@@ -791,37 +787,79 @@ MinBackward::MinBackward(const Tensor& input, const Tensor& output, std::size_t 
 
 std::vector<Tensor> MinBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
-    // Similar to max, but for min.
-    // We'll use the same approach: distribute the gradient equally among all minima.
+    // Detach inputs to avoid requiring gradients on intermediate results
+    Tensor input_detached = input_.detach();
+    Tensor output_detached = output_.detach();
 
-    // Step 1: Expand grad_output to the input shape by inserting a dimension of size 1 at dim_
-    //         and then expanding to the full size.
-    std::vector<std::size_t> expanded_shape = input_.shape();
-    expanded_shape[dim_] = 1;
-    Tensor expanded_grad_output = grad_output.reshape(expanded_shape);
-    Tensor ones = Tensor::ones(input_.shape(), false);
-    Tensor grad_output_expanded = ones * expanded_grad_output; // This broadcasts expanded_grad_output to the shape of input_
+    // Create a zero gradient tensor with the input shape
+    Tensor grad_input = Tensor::zeros(input_detached.shape(), false);
 
-    // Step 2: Create a mask where input_ equals the min (which is output_ expanded to input shape)
-    std::vector<std::size_t> output_expanded_shape = input_.shape();
-    output_expanded_shape[dim_] = 1;
-    Tensor output_expanded = output_.reshape(output_expanded_shape);
-    Tensor ones_for_output = Tensor::ones(input_.shape(), false);
-    Tensor output_expanded_full = ones_for_output * output_expanded; // Broadcast output to input shape
+    // Get the shape info
+    const std::vector<std::size_t>& input_shape = input_detached.shape();
+    std::size_t ndim = input_shape.size();
 
-    // Step 3: Create a boolean mask where input_ equals output_expanded_full
-    Tensor mask = (input_ == output_expanded_full).to_float();
+    // Calculate the number of elements in the reduced dimension
+    std::size_t dim_size = input_shape[dim_];
 
-    // Step 4: Count the number of minima along the reduced dimension for each slice.
-    Tensor mask_sum = mask.sum(dim_, true); // keepdim=true
+    // Calculate the number of slices (total elements / dim_size)
+    std::size_t num_slices = input_detached.numel() / dim_size;
 
-    // Step 5: Avoid division by zero
-    Tensor mask_sum_clamped = mask_sum.clamp(Tensor::scalar(1.0f), Tensor::scalar(std::numeric_limits<float>::max()));
+    // Get data pointers
+    const float* input_data = input_detached.data();
+    const float* output_data = output_detached.data();
+    const float* grad_output_data = grad_output.data();
+    float* grad_input_data = grad_input.data();
 
-    // Step 6: The gradient w.r.t. input is (mask * grad_output_expanded) / mask_sum_clamped
-    Tensor grad_input = (mask * grad_output_expanded) / mask_sum_clamped;
+    // Compute strides for the input tensor
+    std::vector<std::size_t> strides(ndim, 1);
+    for (int i = static_cast<int>(ndim) - 2; i >= 0; --i) {
+        strides[i] = strides[i + 1] * input_shape[i + 1];
+    }
 
-    return {grad_input};
+    // For each slice, find the first occurrence of min and set gradient there
+    for (std::size_t slice_idx = 0; slice_idx < num_slices; ++slice_idx) {
+        // Compute the base index for this slice
+        std::vector<std::size_t> slice_coords(ndim, 0);
+        std::size_t remaining = slice_idx;
+        for (int i = static_cast<int>(ndim) - 1; i >= 0; --i) {
+            if (static_cast<std::size_t>(i) == dim_) continue;
+            std::size_t dim_stride = 1;
+            for (std::size_t j = i + 1; j < ndim; ++j) {
+                if (j != dim_) {
+                    dim_stride *= input_shape[j];
+                }
+            }
+            slice_coords[i] = remaining / dim_stride;
+            remaining %= dim_stride;
+        }
+
+        // Find the first occurrence of the min value in this slice
+        std::size_t min_pos = 0;
+        float min_val = input_data[0]; // Will be overwritten
+
+        // Compute base offset for this slice
+        std::size_t base_offset = 0;
+        for (std::size_t i = 0; i < ndim; ++i) {
+            if (i != dim_) {
+                base_offset += slice_coords[i] * strides[i];
+            }
+        }
+
+        min_val = input_data[base_offset];
+        for (std::size_t i = 1; i < dim_size; ++i) {
+            std::size_t idx = base_offset + i * strides[dim_];
+            if (input_data[idx] < min_val) {
+                min_val = input_data[idx];
+                min_pos = i;
+            }
+        }
+
+        // Set gradient at the min position
+        std::size_t grad_idx = base_offset + min_pos * strides[dim_];
+        grad_input_data[grad_idx] = grad_output_data[slice_idx];
+    }
+
+    return {grad_input.detach()};
 }
 
 // MatMulBackward
@@ -854,7 +892,7 @@ std::vector<Tensor> MatMulBackward::backward(const std::vector<Tensor>& grad_out
     Tensor grad_b = a_transposed.matmul(grad_output);
 
     // No broadcasting to worry about because matmul doesn't broadcast in our implementation.
-    return {grad_a, grad_b};
+    return {grad_a.detach(), grad_b.detach()};
 }
 
 } // namespace autograd

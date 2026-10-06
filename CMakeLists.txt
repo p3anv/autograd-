@@ -85,7 +85,16 @@ if(BUILD_TESTING)
         tests/test_storage.cpp
         tests/test_tensor_impl.cpp
         tests/test_tensor.cpp
+        tests/test_autograd.cpp
+    )
+
+add_executable(hardcore_tests
         tests/hardcore_test.cpp
+    )
+
+    target_link_libraries(hardcore_tests
+        PRIVATE
+            autograd
     )
 
     target_include_directories(autograd_tests
@@ -104,6 +113,7 @@ if(BUILD_TESTING)
 
     enable_testing()
     add_test(NAME autograd_tests COMMAND autograd_tests)
+    add_test(NAME hardcore_tests COMMAND hardcore_tests)
 endif()
 
 # Benchmark target placeholder

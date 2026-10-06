@@ -141,8 +141,10 @@ TEST(TensorTest, BackwardNotImplemented) {
     Tensor t = Tensor::zeros({2, 3}, true);
     Tensor grad_output = Tensor::ones({2, 3}, false);
 
-    EXPECT_THROW(t.backward(grad_output), std::runtime_error);
-    EXPECT_THROW(t.backward(), std::runtime_error); // scalar only
+    // Leaf tensor without grad_fn should throw logic_error when calling backward
+    EXPECT_THROW(t.backward(grad_output), std::logic_error);
+    // backward() without args throws runtime_error for non-scalar tensors
+    EXPECT_THROW(t.backward(), std::runtime_error); // non-scalar tensor
 }
 
 TEST(TensorTest, AddOperation) {
@@ -226,7 +228,8 @@ TEST(TensorTest, AddWithZerosOnes) {
 
     EXPECT_EQ(result.numel(), 6);
     EXPECT_EQ(result.dim(), 2);
-    EXPECT_FALSE(result.requires_grad()); // Adding non-grad tensor should not require grad
+    // With autograd: if either operand requires_grad, result requires_grad
+    EXPECT_TRUE(result.requires_grad());
 
     // Check values
     for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -388,7 +391,8 @@ TEST(TensorTest, MulWithZerosOnes) {
 
     EXPECT_EQ(result.numel(), 6);
     EXPECT_EQ(result.dim(), 2);
-    EXPECT_FALSE(result.requires_grad()); // Multiplying by non-grad tensor should not require grad
+    // With autograd: if either operand requires_grad, result requires_grad
+    EXPECT_TRUE(result.requires_grad());
 
     // Check values
     for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -485,7 +489,8 @@ TEST(TensorTest, DivWithZerosOnes) {
 
     EXPECT_EQ(result.numel(), 6);
     EXPECT_EQ(result.dim(), 2);
-    EXPECT_FALSE(result.requires_grad()); // Dividing by non-grad tensor should not require grad
+    // With autograd: if either operand requires_grad, result requires_grad
+    EXPECT_TRUE(result.requires_grad());
 
     // Check values (division by zero will produce inf)
     for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -497,8 +502,12 @@ TEST(TensorTest, OperatorsNotImplemented) {
     Tensor a = Tensor::zeros({2, 2}, false);
     Tensor b = Tensor::zeros({2, 2}, false);
 
-    EXPECT_THROW(a + b, std::runtime_error);
-    EXPECT_THROW(a * b, std::runtime_error);
+    // Operators now call autograd operations, so they should work
+    Tensor result_add = a + b;
+    Tensor result_mul = a * b;
+
+    EXPECT_EQ(result_add.numel(), 4);
+    EXPECT_EQ(result_mul.numel(), 4);
 }
 
 TEST(TensorTest, SliceView) {

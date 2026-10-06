@@ -187,8 +187,8 @@ void Tensor::backward(const Tensor& grad_output)
         throw std::logic_error("Cannot call backward on tensor that doesn't require gradients");
     }
 
-    if (impl_->grad_fn_) {
-        throw std::logic_error("Cannot call backward on non-leaf tensor that has already been used in a backward pass");
+    if (!impl_->grad_fn_) {
+        throw std::logic_error("Cannot call backward on leaf tensor without gradient function");
     }
 
     // Create autograd engine and run backward pass
@@ -210,8 +210,8 @@ void Tensor::backward()
         throw std::logic_error("Cannot call backward on tensor that doesn't require gradients");
     }
 
-    if (impl_->grad_fn_) {
-        throw std::logic_error("Cannot call backward on non-leaf tensor that has already been used in a backward pass");
+    if (!impl_->grad_fn_) {
+        throw std::logic_error("Cannot call backward on leaf tensor without gradient function");
     }
 
     // Create scalar gradient of 1.0
@@ -333,134 +333,35 @@ Tensor Tensor::operator!=(const Tensor& other) const
 
 Tensor Tensor::operator<(const Tensor& other) const
 {
-    // Element-wise less than - return true if ALL elements are less
-    // But looking at usage in function_nodes.cpp, it seems they want
-    // element-wise comparison that returns a tensor of bools.
-    // However, the way it's used: (input_ > zero).to_float()
-    // suggests they want an element-wise comparison that returns a tensor
-    // which they then convert to float.
-    //
-    // Actually, looking more carefully at the code, these comparison
-    // operators are being used in expressions like (input_ > zero)
-    // and then calling .to_float() on the result.
-    // This suggests that operator> should return a Tensor, not a bool.
-    //
-    // Let me check how it's used:
-    // In AbsBackward: Tensor pos_part = (input_ > zero).to_float();
-    // In ReLUBackward: Tensor grad_input = grad_output * (input_ > zero).to_float();
-    //
-    // So (input_ > zero) must return a Tensor that has a .to_float() method.
-    // Therefore, the comparison operators should return Tensor, not bool.
-    //
-    // I need to change the declarations in tensor.hpp to return Tensor
-    // and implement them to do element-wise comparison returning 0/1 tensors.
-
-    // For now, I'll return false to avoid breaking things, but this needs to be fixed properly.
-    std::vector<std::size_t> this_shape = this->shape();
-    std::vector<std::size_t> other_shape = other.shape();
-
-    if (this_shape == other_shape) {
-        if (this->numel() == 0) {
-            return Tensor({}, false); // scalar tensor
-        }
-
-        Tensor result(this_shape, false);
-        const float* this_data = this->data();
-        const float* other_data = other.data();
-        float* result_data = result.data();
-
-        for (std::size_t i = 0; i < this->numel(); ++i) {
-            result_data[i] = (this_data[i] < other_data[i]) ? 1.0f : 0.0f;
-        }
-
-        return result;
-    }
-
-    throw std::invalid_argument("Incompatible shapes for operator< (broadcasting not fully implemented)");
+    return autograd::lesser(*this, other);
 }
 
 Tensor Tensor::operator<=(const Tensor& other) const
 {
-    std::vector<std::size_t> this_shape = this->shape();
-    std::vector<std::size_t> other_shape = other.shape();
-
-    if (this_shape == other_shape) {
-        if (this->numel() == 0) {
-            return Tensor({}, false); // scalar tensor
-        }
-
-        Tensor result(this_shape, false);
-        const float* this_data = this->data();
-        const float* other_data = other.data();
-        float* result_data = result.data();
-
-        for (std::size_t i = 0; i < this->numel(); ++i) {
-            result_data[i] = (this_data[i] <= other_data[i]) ? 1.0f : 0.0f;
-        }
-
-        return result;
-    }
-
-    throw std::invalid_argument("Incompatible shapes for operator<= (broadcasting not fully implemented)");
+    return autograd::lesser_equal(*this, other);
 }
 
 Tensor Tensor::operator>(const Tensor& other) const
 {
-    std::vector<std::size_t> this_shape = this->shape();
-    std::vector<std::size_t> other_shape = other.shape();
-
-    if (this_shape == other_shape) {
-        if (this->numel() == 0) {
-            return Tensor({}, false); // scalar tensor
-        }
-
-        Tensor result(this_shape, false);
-        const float* this_data = this->data();
-        const float* other_data = other.data();
-        float* result_data = result.data();
-
-        for (std::size_t i = 0; i < this->numel(); ++i) {
-            result_data[i] = (this_data[i] > other_data[i]) ? 1.0f : 0.0f;
-        }
-
-        return result;
-    }
-
-    throw std::invalid_argument("Incompatible shapes for operator> (broadcasting not fully implemented)");
+    return autograd::greater(*this, other);
 }
 
 Tensor Tensor::operator>=(const Tensor& other) const
 {
-    std::vector<std::size_t> this_shape = this->shape();
-    std::vector<std::size_t> other_shape = other.shape();
-
-    if (this_shape == other_shape) {
-        if (this->numel() == 0) {
-            return Tensor({}, false); // scalar tensor
-        }
-
-        Tensor result(this_shape, false);
-        const float* this_data = this->data();
-        const float* other_data = other.data();
-        float* result_data = result.data();
-
-        for (std::size_t i = 0; i < this->numel(); ++i) {
-            result_data[i] = (this_data[i] >= other_data[i]) ? 1.0f : 0.0f;
-        }
-
-        return result;
-    }
-
-    throw std::invalid_argument("Incompatible shapes for operator>= (broadcasting not fully implemented)");
+    return autograd::greater_equal(*this, other);
 }
 
 // Tensor methods needed for autograd
 Tensor Tensor::to_float() const
 {
-    // For now, just return a copy of the tensor
-    // In a more complete implementation, this would convert boolean/integer tensors to float
-    // But since we only support float tensors, this is just a copy
-    return Tensor(impl_->get_shape(), impl_->requires_grad_);
+    // Copy the tensor data to a new tensor
+    Tensor result(impl_->get_shape(), false);
+    if (numel() > 0) {
+        const float* src_data = data();
+        float* dst_data = result.data();
+        std::copy(src_data, src_data + numel(), dst_data);
+    }
+    return result;
 }
 
 Tensor Tensor::sum(std::size_t dim, bool keepdim) const

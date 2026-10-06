@@ -42,4 +42,12 @@ Tensor transpose(const Tensor& a); // assumes 2D tensor
 Tensor sum_all(const Tensor& a);   // sums over all dimensions to produce a scalar
 Tensor clamp(const Tensor& input, const Tensor& min, const Tensor& max);
 
+// Comparison operations (with broadcasting support)
+Tensor greater(const Tensor& a, const Tensor& b);   // greater than (a > b)
+Tensor greater_equal(const Tensor& a, const Tensor& b);   // greater or equal (a >= b)
+Tensor lesser(const Tensor& a, const Tensor& b);   // less than (a < b)
+Tensor lesser_equal(const Tensor& a, const Tensor& b);   // less or equal (a <= b)
+Tensor equal(const Tensor& a, const Tensor& b);   // equal (a == b)
+Tensor not_equal(const Tensor& a, const Tensor& b);   // not equal (a != b)
+
 } // namespace autograd

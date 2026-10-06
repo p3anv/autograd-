@@ -1,4 +1,6 @@
 #include "autograd/operations.hpp"
+#include "autograd/function_nodes.hpp"
+#include "autograd/internal.hpp"
 #include <stdexcept>
 #include <cmath>
 
@@ -126,6 +128,25 @@ Tensor add(const Tensor& a, const Tensor& b) {
         }
     }
 
+    // Autograd graph building
+    bool requires_grad = a.requires_grad() || b.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<AddBackward>(a.shape(), b.shape());
+        // For intermediate tensors (those with grad_fn_), create intermediate parent edge
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        if (b.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -249,6 +270,24 @@ Tensor sub(const Tensor& a, const Tensor& b) {
 
             ++linear_index;
         }
+    }
+
+    // Autograd graph building
+    bool requires_grad = a.requires_grad() || b.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<SubBackward>(a.shape(), b.shape());
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        if (b.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -376,6 +415,24 @@ Tensor mul(const Tensor& a, const Tensor& b) {
         }
     }
 
+    // Autograd graph building
+    bool requires_grad = a.requires_grad() || b.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<MulBackward>(a, b);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        if (b.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -499,6 +556,24 @@ Tensor div(const Tensor& a, const Tensor& b) {
 
             ++linear_index;
         }
+    }
+
+    // Autograd graph building
+    bool requires_grad = a.requires_grad() || b.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<DivBackward>(a, b);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        if (b.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -626,6 +701,24 @@ Tensor pow(const Tensor& base, const Tensor& exponent) {
         }
     }
 
+    // Autograd graph building
+    bool requires_grad = base.requires_grad() || exponent.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<PowBackward>(base, exponent);
+        if (base.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(base.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(base.impl(), 0));
+        }
+        if (exponent.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(exponent.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(exponent.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -657,6 +750,18 @@ Tensor neg(const Tensor& a) {
         for (std::size_t i = 0; i < result.numel(); ++i) {
             result_data[i] = -a_data[i];
         }
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<NegBackward>();
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -691,6 +796,18 @@ Tensor exp(const Tensor& a) {
         }
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<ExpBackward>(result);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -721,6 +838,18 @@ Tensor log(const Tensor& a) {
         for (std::size_t i = 0; i < result.numel(); ++i) {
             result_data[i] = std::log(a_data[i]);
         }
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<LogBackward>(a);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -755,6 +884,18 @@ Tensor sqrt(const Tensor& a) {
         }
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<SqrtBackward>(a);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -785,6 +926,18 @@ Tensor abs(const Tensor& a) {
         for (std::size_t i = 0; i < result.numel(); ++i) {
             result_data[i] = std::fabs(a_data[i]);
         }
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<AbsBackward>(a);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -820,6 +973,18 @@ Tensor relu(const Tensor& a) {
         }
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<ReLUBackward>(a);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -852,6 +1017,18 @@ Tensor sigmoid(const Tensor& a) {
         }
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<SigmoidBackward>(result);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -882,6 +1059,18 @@ Tensor tanh(const Tensor& a) {
         for (std::size_t i = 0; i < result.numel(); ++i) {
             result_data[i] = std::tanh(a_data[i]);
         }
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<TanhBackward>(result);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -940,6 +1129,18 @@ Tensor softmax(const Tensor& a) {
         for (std::size_t i = 0; i < inner_size; ++i) {
             output_data[outer * inner_size + i] /= exp_sum;
         }
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<SoftmaxBackward>(result);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -1033,6 +1234,18 @@ Tensor sum(const Tensor& a, std::size_t dim, bool keepdim) {
         output_data[i] = sum_val;
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<SumBackward>(a.shape(), dim);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1077,6 +1290,18 @@ Tensor mean(const Tensor& a, std::size_t dim) {
     // Divide each element by the dimension size
     for (std::size_t i = 0; i < result.numel(); ++i) {
         result_data[i] = sum_data[i] / static_cast<float>(dim_size);
+    }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<MeanBackward>(a.shape(), dim);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -1174,6 +1399,18 @@ Tensor max(const Tensor& a, std::size_t dim) {
         output_data[i] = max_val;
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<MaxBackward>(a, result, dim);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1269,6 +1506,18 @@ Tensor min(const Tensor& a, std::size_t dim) {
         output_data[i] = min_val;
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<MinBackward>(a, result, dim);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1331,6 +1580,18 @@ Tensor log_softmax(const Tensor& a) {
         }
     }
 
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<SoftmaxBackward>(result);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1380,6 +1641,24 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
             }
             result_data[i * N + j] = sum;
         }
+    }
+
+    // Autograd graph building
+    bool requires_grad = a.requires_grad() || b.requires_grad();
+    if (requires_grad) {
+        auto grad_fn = std::make_shared<MatMulBackward>(a, b);
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        if (b.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl()->grad_fn_, 1));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(b.impl(), 1));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
     }
 
     return result;
@@ -1631,6 +1910,150 @@ Tensor equal(const Tensor& a, const Tensor& b) {
         float b_val = b_data[b_offset];
         // Use a small epsilon for floating point equality? For now, exact equality.
         result_data[linear] = (a_val == b_val) ? 1.0f : 0.0f;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+Tensor not_equal(const Tensor& a, const Tensor& b) {
+    Tensor eq_result = equal(a, b);
+    // Invert the result
+    Tensor result(eq_result.shape(), false);
+    const float* eq_data = eq_result.data();
+    float* result_data = result.data();
+    for (std::size_t i = 0; i < result.numel(); ++i) {
+        result_data[i] = (eq_data[i] == 1.0f) ? 0.0f : 1.0f;
+    }
+    return result;
+}
+
+Tensor greater_equal(const Tensor& a, const Tensor& b) {
+    // Broadcast shapes
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in greater_equal");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val >= b_val) ? 1.0f : 0.0f;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+Tensor lesser_equal(const Tensor& a, const Tensor& b) {
+    // Broadcast shapes
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in lesser_equal");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val <= b_val) ? 1.0f : 0.0f;
         for (std::size_t i = result_shape.size(); i > 0; --i) {
             std::size_t idx = i - 1;
             if (++result_indices[idx] < result_shape[idx]) {
