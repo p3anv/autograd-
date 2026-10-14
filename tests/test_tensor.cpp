@@ -510,6 +510,42 @@ TEST(TensorTest, OperatorsNotImplemented) {
     EXPECT_EQ(result_mul.numel(), 4);
 }
 
+// Comparisons against a scalar must broadcast the scalar's element (never step
+// past its buffer). Regression: nonzero output coordinates used to index the
+// operand buffer out of bounds, so e.g. (0.0 > 0.0) could read as true.
+TEST(TensorTest, ComparisonScalarBroadcast) {
+    Tensor a({3}, false);
+    a.data()[0] = 1.0f;
+    a.data()[1] = -2.0f;
+    a.data()[2] = 0.0f;
+    Tensor zero = Tensor::scalar(0.0f);
+
+    Tensor gt = (a > zero);
+    EXPECT_FLOAT_EQ(gt.data()[0], 1.0f);
+    EXPECT_FLOAT_EQ(gt.data()[1], 0.0f);
+    EXPECT_FLOAT_EQ(gt.data()[2], 0.0f);
+
+    Tensor lt = (a < zero);
+    EXPECT_FLOAT_EQ(lt.data()[0], 0.0f);
+    EXPECT_FLOAT_EQ(lt.data()[1], 1.0f);
+    EXPECT_FLOAT_EQ(lt.data()[2], 0.0f);
+
+    Tensor ge = (a >= zero);
+    EXPECT_FLOAT_EQ(ge.data()[0], 1.0f);
+    EXPECT_FLOAT_EQ(ge.data()[1], 0.0f);
+    EXPECT_FLOAT_EQ(ge.data()[2], 1.0f);
+
+    Tensor le = (a <= zero);
+    EXPECT_FLOAT_EQ(le.data()[0], 0.0f);
+    EXPECT_FLOAT_EQ(le.data()[1], 1.0f);
+    EXPECT_FLOAT_EQ(le.data()[2], 1.0f);
+
+    Tensor eq = equal(a, zero);
+    EXPECT_FLOAT_EQ(eq.data()[0], 0.0f);
+    EXPECT_FLOAT_EQ(eq.data()[1], 0.0f);
+    EXPECT_FLOAT_EQ(eq.data()[2], 1.0f);
+}
+
 TEST(TensorTest, SliceView) {
     Tensor base = Tensor::zeros({4, 6}, false);
     // Slice the first dimension: [0:2, :] -> shape {2, 6}

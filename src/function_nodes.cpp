@@ -467,37 +467,37 @@ std::vector<Tensor> NegBackward::backward(const std::vector<Tensor>& grad_output
 
 // ExpBackward
 ExpBackward::ExpBackward(const Tensor& output)
-    : FunctionNode(output.shape()), output_(output) {}
+    : FunctionNode(output.shape()), output_detached_(output.detach()) {}
 
 std::vector<Tensor> ExpBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = exp(x) => dy/dx = exp(x) = y
     Tensor grad_output = grad_outputs[0];
-    Tensor grad_input = grad_output * output_.detach();
+    Tensor grad_input = grad_output * output_detached_;
     // No broadcasting
     return {grad_input.detach()};
 }
 
 // LogBackward
 LogBackward::LogBackward(const Tensor& input)
-    : FunctionNode(input.shape()), input_(input) {}
+    : FunctionNode(input.shape()), input_detached_(input.detach()) {}
 
 std::vector<Tensor> LogBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = ln(x) => dy/dx = 1/x
     Tensor grad_output = grad_outputs[0];
-    Tensor grad_input = grad_output / input_.detach();
+    Tensor grad_input = grad_output / input_detached_;
     // No broadcasting
     return {grad_input.detach()};
 }
 
 // SqrtBackward
 SqrtBackward::SqrtBackward(const Tensor& input)
-    : FunctionNode(input.shape()), input_(input) {}
+    : FunctionNode(input.shape()), input_detached_(input.detach()) {}
 
 std::vector<Tensor> SqrtBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = sqrt(x) => dy/dx = 1/(2*sqrt(x))
     Tensor grad_output = grad_outputs[0];
     Tensor two = Tensor::scalar(2.0f);
-    Tensor sqrt_x = input_.detach().sqrt();
+    Tensor sqrt_x = input_detached_.sqrt();
     Tensor grad_input = grad_output / (two * sqrt_x);
     // No broadcasting
     return {grad_input.detach()};
@@ -505,7 +505,7 @@ std::vector<Tensor> SqrtBackward::backward(const std::vector<Tensor>& grad_outpu
 
 // AbsBackward
 AbsBackward::AbsBackward(const Tensor& input)
-    : FunctionNode(input.shape()), input_(input) {}
+    : FunctionNode(input.shape()), input_detached_(input.detach()) {}
 
 std::vector<Tensor> AbsBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = |x| => dy/dx = sign(x) where sign(x) is 1 if x>0, -1 if x<0, 0 if x==0
@@ -513,7 +513,7 @@ std::vector<Tensor> AbsBackward::backward(const std::vector<Tensor>& grad_output
     Tensor zero = Tensor::scalar(0.0f);
     Tensor one = Tensor::scalar(1.0f);
     Tensor neg_one = Tensor::scalar(-1.0f);
-    Tensor input_detached = input_.detach();
+    Tensor input_detached = input_detached_;
     Tensor pos_part = (input_detached > zero).to_float(); // 1 where input>0, else 0
     Tensor neg_part = (input_detached < zero).to_float(); // 1 where input<0, else 0
     Tensor grad_input = grad_output * (pos_part - neg_part);
@@ -523,13 +523,13 @@ std::vector<Tensor> AbsBackward::backward(const std::vector<Tensor>& grad_output
 
 // ReLUBackward
 ReLUBackward::ReLUBackward(const Tensor& input)
-    : FunctionNode(input.shape()), input_(input) {}
+    : FunctionNode(input.shape()), input_detached_(input.detach()) {}
 
 std::vector<Tensor> ReLUBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = max(0, x) => dy/dx = 1 if x>0, else 0
     Tensor grad_output = grad_outputs[0];
     Tensor zero = Tensor::scalar(0.0f);
-    Tensor input_detached = input_.detach();
+    Tensor input_detached = input_detached_;
     Tensor grad_input = grad_output * (input_detached > zero).to_float();
     // No broadcasting
     return {grad_input.detach()};
@@ -537,13 +537,13 @@ std::vector<Tensor> ReLUBackward::backward(const std::vector<Tensor>& grad_outpu
 
 // SigmoidBackward
 SigmoidBackward::SigmoidBackward(const Tensor& output)
-    : FunctionNode(output.shape()), output_(output) {}
+    : FunctionNode(output.shape()), output_detached_(output.detach()) {}
 
 std::vector<Tensor> SigmoidBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = sigmoid(x) => dy/dx = y * (1 - y)
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
-    Tensor output_detached = output_.detach();
+    Tensor output_detached = output_detached_;
     Tensor grad_input = grad_output * output_detached * (one - output_detached);
     // No broadcasting
     return {grad_input.detach()};
@@ -551,13 +551,13 @@ std::vector<Tensor> SigmoidBackward::backward(const std::vector<Tensor>& grad_ou
 
 // TanhBackward
 TanhBackward::TanhBackward(const Tensor& output)
-    : FunctionNode(output.shape()), output_(output) {}
+    : FunctionNode(output.shape()), output_detached_(output.detach()) {}
 
 std::vector<Tensor> TanhBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = tanh(x) => dy/dx = 1 - y^2
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
-    Tensor output_detached = output_.detach();
+    Tensor output_detached = output_detached_;
     Tensor grad_input = grad_output * (one - output_detached * output_detached);
     // No broadcasting
     return {grad_input.detach()};
@@ -565,14 +565,14 @@ std::vector<Tensor> TanhBackward::backward(const std::vector<Tensor>& grad_outpu
 
 // SoftmaxBackward
 SoftmaxBackward::SoftmaxBackward(const Tensor& output)
-    : FunctionNode(output.shape()), output_(output) {}
+    : FunctionNode(output.shape()), output_detached_(output.detach()) {}
 
 std::vector<Tensor> SoftmaxBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // For softmax, the Jacobian-vector product is:
     // grad_input = grad_output * output - output * sum(grad_output * output, dim=-1, keepdim=True)
     Tensor grad_output = grad_outputs[0];
     Tensor one = Tensor::scalar(1.0f);
-    Tensor output_detached = output_.detach();
+    Tensor output_detached = output_detached_;
     // Compute sum over the last dimension
     std::size_t last_dim = output_detached.shape().size() - 1;
     Tensor sum_term = (grad_output * output_detached).sum(last_dim, true); // keepdim=true
@@ -697,16 +697,22 @@ std::vector<Tensor> MeanBackward::backward(const std::vector<Tensor>& grad_outpu
 }
 
 // MaxBackward
-MaxBackward::MaxBackward(const Tensor& input, const Tensor& output, std::size_t dim)
-    : FunctionNode(output.shape()), input_(input), output_(output), dim_(dim) {
-    // Output shape is already set by the base constructor using output.shape()
+MaxBackward::MaxBackward(const Tensor& input, std::size_t dim)
+    : FunctionNode(input.shape()), input_detached_(input.detach()), dim_(dim) {
+    // The output shape is computed from the input shape by removing the reduced dimension
+    std::vector<std::size_t> output_shape;
+    for (std::size_t i = 0; i < input.shape().size(); ++i) {
+        if (i != dim) {
+            output_shape.push_back(input.shape()[i]);
+        }
+    }
+    output_shape_ = std::move(output_shape);
 }
 
 std::vector<Tensor> MaxBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
-    // Detach inputs to avoid requiring gradients on intermediate results
-    Tensor input_detached = input_.detach();
-    Tensor output_detached = output_.detach();
+    // Use detached input to avoid requiring gradients on intermediate results
+    Tensor input_detached = input_detached_;
 
     // Create a zero gradient tensor with the input shape
     Tensor grad_input = Tensor::zeros(input_detached.shape(), false);
@@ -723,7 +729,6 @@ std::vector<Tensor> MaxBackward::backward(const std::vector<Tensor>& grad_output
 
     // Get data pointers
     const float* input_data = input_detached.data();
-    const float* output_data = output_detached.data();
     const float* grad_output_data = grad_output.data();
     float* grad_input_data = grad_input.data();
 
@@ -780,16 +785,22 @@ std::vector<Tensor> MaxBackward::backward(const std::vector<Tensor>& grad_output
 }
 
 // MinBackward
-MinBackward::MinBackward(const Tensor& input, const Tensor& output, std::size_t dim)
-    : FunctionNode(output.shape()), input_(input), output_(output), dim_(dim) {
-    // Output shape is already set by the base constructor using output.shape()
+MinBackward::MinBackward(const Tensor& input, std::size_t dim)
+    : FunctionNode(input.shape()), input_detached_(input.detach()), dim_(dim) {
+    // The output shape is computed from the input shape by removing the reduced dimension
+    std::vector<std::size_t> output_shape;
+    for (std::size_t i = 0; i < input.shape().size(); ++i) {
+        if (i != dim) {
+            output_shape.push_back(input.shape()[i]);
+        }
+    }
+    output_shape_ = std::move(output_shape);
 }
 
 std::vector<Tensor> MinBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
-    // Detach inputs to avoid requiring gradients on intermediate results
-    Tensor input_detached = input_.detach();
-    Tensor output_detached = output_.detach();
+    // Use detached input to avoid requiring gradients on intermediate results
+    Tensor input_detached = input_detached_;
 
     // Create a zero gradient tensor with the input shape
     Tensor grad_input = Tensor::zeros(input_detached.shape(), false);
@@ -806,7 +817,6 @@ std::vector<Tensor> MinBackward::backward(const std::vector<Tensor>& grad_output
 
     // Get data pointers
     const float* input_data = input_detached.data();
-    const float* output_data = output_detached.data();
     const float* grad_output_data = grad_output.data();
     float* grad_input_data = grad_input.data();
 
@@ -864,7 +874,7 @@ std::vector<Tensor> MinBackward::backward(const std::vector<Tensor>& grad_output
 
 // MatMulBackward
 MatMulBackward::MatMulBackward(const Tensor& a, const Tensor& b)
-    : FunctionNode({}), a_(a), b_(b) {
+    : FunctionNode({}), a_detached_(a.detach()), b_detached_(b.detach()) {
     // For matmul, output shape is [a.rows, b.cols] assuming a is [M, K] and b is [K, N]
     // We assume the tensors are 2D (as per the forward pass restriction).
     std::vector<std::size_t> a_shape = a.shape();
@@ -886,8 +896,8 @@ std::vector<Tensor> MatMulBackward::backward(const std::vector<Tensor>& grad_out
     // grad_a = grad_output * b^T
     // grad_b = a^T * grad_output
     // Note: we need to transpose b and a.
-    Tensor b_transposed = b_.transpose();
-    Tensor a_transposed = a_.transpose();
+    Tensor b_transposed = b_detached_.transpose();
+    Tensor a_transposed = a_detached_.transpose();
     Tensor grad_a = grad_output.matmul(b_transposed);
     Tensor grad_b = a_transposed.matmul(grad_output);
 

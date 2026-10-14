@@ -141,7 +141,7 @@ public:
     std::string name() const override { return "ExpBackward"; }
 
 private:
-    Tensor output_;
+    Tensor output_detached_;
 };
 
 /**
@@ -154,7 +154,7 @@ public:
     std::string name() const override { return "LogBackward"; }
 
 private:
-    Tensor input_;
+    Tensor input_detached_;
 };
 
 /**
@@ -167,7 +167,7 @@ public:
     std::string name() const override { return "SqrtBackward"; }
 
 private:
-    Tensor input_;
+    Tensor input_detached_;
 };
 
 /**
@@ -180,7 +180,7 @@ public:
     std::string name() const override { return "AbsBackward"; }
 
 private:
-    Tensor input_;
+    Tensor input_detached_;
 };
 
 /**
@@ -193,7 +193,7 @@ public:
     std::string name() const override { return "ReLUBackward"; }
 
 private:
-    Tensor input_;
+    Tensor input_detached_;
 };
 
 /**
@@ -206,7 +206,7 @@ public:
     std::string name() const override { return "SigmoidBackward"; }
 
 private:
-    Tensor output_;
+    Tensor output_detached_;
 };
 
 /**
@@ -219,7 +219,7 @@ public:
     std::string name() const override { return "TanhBackward"; }
 
 private:
-    Tensor output_;
+    Tensor output_detached_;
 };
 
 /**
@@ -232,7 +232,7 @@ public:
     std::string name() const override { return "SoftmaxBackward"; }
 
 private:
-    Tensor output_;
+    Tensor output_detached_;
 };
 
 /**
@@ -268,13 +268,12 @@ private:
  */
 class MaxBackward : public FunctionNode {
 public:
-    MaxBackward(const Tensor& input, const Tensor& output, std::size_t dim);
+    MaxBackward(const Tensor& input, std::size_t dim);
     std::vector<Tensor> backward(const std::vector<Tensor>& grad_outputs) override;
     std::string name() const override { return "MaxBackward"; }
 
 private:
-    Tensor input_;
-    Tensor output_;
+    Tensor input_detached_;
     std::size_t dim_;
 };
 
@@ -283,13 +282,12 @@ private:
  */
 class MinBackward : public FunctionNode {
 public:
-    MinBackward(const Tensor& input, const Tensor& output, std::size_t dim);
+    MinBackward(const Tensor& input, std::size_t dim);
     std::vector<Tensor> backward(const std::vector<Tensor>& grad_outputs) override;
     std::string name() const override { return "MinBackward"; }
 
 private:
-    Tensor input_;
-    Tensor output_;
+    Tensor input_detached_;
     std::size_t dim_;
 };
 
@@ -303,8 +301,8 @@ public:
     std::string name() const override { return "MatMulBackward"; }
 
 private:
-    Tensor a_;
-    Tensor b_;
+    Tensor a_detached_;
+    Tensor b_detached_;
 };
 
 } // namespace autograd

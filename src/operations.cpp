@@ -1,6 +1,8 @@
 #include "autograd/operations.hpp"
 #include "autograd/function_nodes.hpp"
 #include "autograd/internal.hpp"
+#include "autograd/kernels.hpp"
+#include "autograd/dispatch.hpp"
 #include <stdexcept>
 #include <cmath>
 
@@ -53,23 +55,35 @@ Tensor add(const Tensor& a, const Tensor& b) {
     bool a_is_scalar = (a.numel() == 1);
     bool b_is_scalar = (b.numel() == 1);
 
+    // Use SIMD kernels for contiguous tensors with simple broadcasting
+    bool a_contig = a.is_contiguous();
+    bool b_contig = b.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
     if (a_is_scalar && b_is_scalar) {
         // Both scalars
         *result_data = *a_data + *b_data;
-    } else if (a_is_scalar) {
-        // a is scalar, b is tensor
+    } else if (a_is_scalar && b_contig && result_contig) {
+        // a is scalar, b is contiguous tensor - use SIMD broadcast kernel
+        // add is commutative, so we can use add_scalar_kernel
         float a_val = *a_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_val + b_data[i];
-        }
-    } else if (b_is_scalar) {
-        // b is scalar, a is tensor
+        simd::dispatch([&](auto tag) {
+            simd::add_scalar_kernel(tag, result_data, b_data, a_val, result.numel());
+        });
+    } else if (b_is_scalar && a_contig && result_contig) {
+        // b is scalar, a is contiguous tensor - use SIMD broadcast kernel
         float b_val = *b_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_data[i] + b_val;
-        }
+        simd::dispatch([&](auto tag) {
+            simd::add_scalar_kernel(tag, result_data, a_data, b_val, result.numel());
+        });
+    } else if (!a_is_scalar && !b_is_scalar && a_contig && b_contig && result_contig &&
+               a_shape == result_shape && b_shape == result_shape) {
+        // Both are contiguous tensors with same shape (no broadcasting) - use SIMD kernel
+        simd::dispatch([&](auto tag) {
+            simd::add_kernel(tag, result_data, a_data, b_data, result.numel());
+        });
     } else {
-        // Both are tensors - need to handle broadcasting properly
+        // Both are tensors - need to handle broadcasting properly (fallback to scalar)
         // We'll iterate through the result tensor and compute indices for a and b
         std::vector<std::size_t> a_indices(a_shape.size(), 0);
         std::vector<std::size_t> b_indices(b_shape.size(), 0);
@@ -197,23 +211,35 @@ Tensor sub(const Tensor& a, const Tensor& b) {
     bool a_is_scalar = (a.numel() == 1);
     bool b_is_scalar = (b.numel() == 1);
 
+    // Use SIMD kernels for contiguous tensors with simple broadcasting
+    bool a_contig = a.is_contiguous();
+    bool b_contig = b.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
     if (a_is_scalar && b_is_scalar) {
         // Both scalars
         *result_data = *a_data - *b_data;
-    } else if (a_is_scalar) {
-        // a is scalar, b is tensor
+    } else if (a_is_scalar && b_contig && result_contig) {
+        // a is scalar, b is contiguous tensor - use SIMD broadcast kernel
+        // rsub_scalar_kernel does dst = scalar - vector
         float a_val = *a_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_val - b_data[i];
-        }
-    } else if (b_is_scalar) {
-        // b is scalar, a is tensor
+        simd::dispatch([&](auto tag) {
+            simd::rsub_scalar_kernel(tag, result_data, a_val, b_data, result.numel());
+        });
+    } else if (b_is_scalar && a_contig && result_contig) {
+        // b is scalar, a is contiguous tensor - use SIMD broadcast kernel
         float b_val = *b_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_data[i] - b_val;
-        }
+        simd::dispatch([&](auto tag) {
+            simd::sub_scalar_kernel(tag, result_data, a_data, b_val, result.numel());
+        });
+    } else if (!a_is_scalar && !b_is_scalar && a_contig && b_contig && result_contig &&
+               a_shape == result_shape && b_shape == result_shape) {
+        // Both are contiguous tensors with same shape (no broadcasting) - use SIMD kernel
+        simd::dispatch([&](auto tag) {
+            simd::sub_kernel(tag, result_data, a_data, b_data, result.numel());
+        });
     } else {
-        // Both are tensors - need to handle broadcasting properly
+        // Both are tensors - need to handle broadcasting properly (fallback to scalar)
         // We'll iterate through the result tensor and compute indices for a and b
         std::vector<std::size_t> a_indices(a_shape.size(), 0);
         std::vector<std::size_t> b_indices(b_shape.size(), 0);
@@ -340,23 +366,34 @@ Tensor mul(const Tensor& a, const Tensor& b) {
     bool a_is_scalar = (a.numel() == 1);
     bool b_is_scalar = (b.numel() == 1);
 
+    // Use SIMD kernels for contiguous tensors with simple broadcasting
+    bool a_contig = a.is_contiguous();
+    bool b_contig = b.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
     if (a_is_scalar && b_is_scalar) {
         // Both scalars
         *result_data = *a_data * *b_data;
-    } else if (a_is_scalar) {
-        // a is scalar, b is tensor
+    } else if (a_is_scalar && b_contig && result_contig) {
+        // a is scalar, b is contiguous tensor - use SIMD broadcast kernel
         float a_val = *a_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_val * b_data[i];
-        }
-    } else if (b_is_scalar) {
-        // b is scalar, a is tensor
+        simd::dispatch([&](auto tag) {
+            simd::mul_scalar_kernel(tag, result_data, b_data, a_val, result.numel());
+        });
+    } else if (b_is_scalar && a_contig && result_contig) {
+        // b is scalar, a is contiguous tensor - use SIMD broadcast kernel
         float b_val = *b_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_data[i] * b_val;
-        }
+        simd::dispatch([&](auto tag) {
+            simd::mul_scalar_kernel(tag, result_data, a_data, b_val, result.numel());
+        });
+    } else if (!a_is_scalar && !b_is_scalar && a_contig && b_contig && result_contig &&
+               a_shape == result_shape && b_shape == result_shape) {
+        // Both are contiguous tensors with same shape (no broadcasting) - use SIMD kernel
+        simd::dispatch([&](auto tag) {
+            simd::mul_kernel(tag, result_data, a_data, b_data, result.numel());
+        });
     } else {
-        // Both are tensors - need to handle broadcasting properly
+        // Both are tensors - need to handle broadcasting properly (fallback to scalar)
         // We'll iterate through the result tensor and compute indices for a and b
         std::vector<std::size_t> a_indices(a_shape.size(), 0);
         std::vector<std::size_t> b_indices(b_shape.size(), 0);
@@ -483,23 +520,34 @@ Tensor div(const Tensor& a, const Tensor& b) {
     bool a_is_scalar = (a.numel() == 1);
     bool b_is_scalar = (b.numel() == 1);
 
+    // Use SIMD kernels for contiguous tensors with simple broadcasting
+    bool a_contig = a.is_contiguous();
+    bool b_contig = b.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
     if (a_is_scalar && b_is_scalar) {
         // Both scalars
         *result_data = *a_data / *b_data;
-    } else if (a_is_scalar) {
-        // a is scalar, b is tensor
+    } else if (a_is_scalar && b_contig && result_contig) {
+        // a is scalar, b is contiguous tensor - use SIMD broadcast kernel
         float a_val = *a_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_val / b_data[i];
-        }
-    } else if (b_is_scalar) {
-        // b is scalar, a is tensor
+        simd::dispatch([&](auto tag) {
+            simd::rdiv_scalar_kernel(tag, result_data, a_val, b_data, result.numel());
+        });
+    } else if (b_is_scalar && a_contig && result_contig) {
+        // b is scalar, a is contiguous tensor - use SIMD broadcast kernel
         float b_val = *b_data;
-        for (std::size_t i = 0; i < result.numel(); ++i) {
-            result_data[i] = a_data[i] / b_val;
-        }
+        simd::dispatch([&](auto tag) {
+            simd::div_scalar_kernel(tag, result_data, a_data, b_val, result.numel());
+        });
+    } else if (!a_is_scalar && !b_is_scalar && a_contig && b_contig && result_contig &&
+               a_shape == result_shape && b_shape == result_shape) {
+        // Both are contiguous tensors with same shape (no broadcasting) - use SIMD kernel
+        simd::dispatch([&](auto tag) {
+            simd::div_kernel(tag, result_data, a_data, b_data, result.numel());
+        });
     } else {
-        // Both are tensors - need to handle broadcasting properly
+        // Both are tensors - need to handle broadcasting properly (fallback to scalar)
         // We'll iterate through the result tensor and compute indices for a and b
         std::vector<std::size_t> a_indices(a_shape.size(), 0);
         std::vector<std::size_t> b_indices(b_shape.size(), 0);
@@ -741,10 +789,17 @@ Tensor neg(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = -*a_data;
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::neg_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -785,10 +840,17 @@ Tensor exp(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = std::exp(*a_data);
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::exp_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -829,10 +891,17 @@ Tensor log(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = std::log(*a_data);
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::log_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -873,10 +942,17 @@ Tensor sqrt(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = std::sqrt(*a_data);
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::sqrt_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -917,10 +993,17 @@ Tensor abs(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = std::fabs(*a_data);
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::abs_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -962,10 +1045,17 @@ Tensor relu(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = (*a_data > 0.0f) ? *a_data : 0.0f;
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::relu_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -1006,10 +1096,17 @@ Tensor sigmoid(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = 1.0f / (1.0f + std::exp(-*a_data));
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::sigmoid_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -1050,10 +1147,17 @@ Tensor tanh(const Tensor& a) {
 
     // Handle special case for efficiency
     bool a_is_scalar = (a.numel() == 1);
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
     if (a_is_scalar) {
         // Scalar tensor
         *result_data = std::tanh(*a_data);
+    } else if (a_contig && result_contig) {
+        // Use SIMD kernel for contiguous tensors
+        simd::dispatch([&](auto tag) {
+            simd::tanh_kernel(tag, result_data, a_data, result.numel());
+        });
     } else {
         // Tensor - iterate through all elements
         for (std::size_t i = 0; i < result.numel(); ++i) {
@@ -1105,29 +1209,39 @@ Tensor softmax(const Tensor& a) {
     const float* input_data = a.data();
     float* output_data = result.data();
 
-    // Process each slice along the last dimension
-    for (std::size_t outer = 0; outer < outer_size; ++outer) {
-        // Find max value in this slice
-        float max_val = input_data[outer * inner_size]; // Initialize with first element
-        for (std::size_t i = 1; i < inner_size; ++i) {
-            float val = input_data[outer * inner_size + i];
-            if (val > max_val) {
-                max_val = val;
+    // Use SIMD kernel for contiguous tensors
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
+    if (a_contig && result_contig) {
+        simd::dispatch([&](auto tag) {
+            simd::softmax_kernel(tag, output_data, input_data, outer_size, inner_size);
+        });
+    } else {
+        // Process each slice along the last dimension (scalar fallback)
+        for (std::size_t outer = 0; outer < outer_size; ++outer) {
+            // Find max value in this slice
+            float max_val = input_data[outer * inner_size]; // Initialize with first element
+            for (std::size_t i = 1; i < inner_size; ++i) {
+                float val = input_data[outer * inner_size + i];
+                if (val > max_val) {
+                    max_val = val;
+                }
             }
-        }
 
-        // Compute exponentials and their sum
-        float exp_sum = 0.0f;
-        for (std::size_t i = 0; i < inner_size; ++i) {
-            float val = input_data[outer * inner_size + i];
-            float exp_val = std::exp(val - max_val);
-            output_data[outer * inner_size + i] = exp_val;
-            exp_sum += exp_val;
-        }
+            // Compute exponentials and their sum
+            float exp_sum = 0.0f;
+            for (std::size_t i = 0; i < inner_size; ++i) {
+                float val = input_data[outer * inner_size + i];
+                float exp_val = std::exp(val - max_val);
+                output_data[outer * inner_size + i] = exp_val;
+                exp_sum += exp_val;
+            }
 
-        // Normalize by dividing by the sum
-        for (std::size_t i = 0; i < inner_size; ++i) {
-            output_data[outer * inner_size + i] /= exp_sum;
+            // Normalize by dividing by the sum
+            for (std::size_t i = 0; i < inner_size; ++i) {
+                output_data[outer * inner_size + i] /= exp_sum;
+            }
         }
     }
 
@@ -1179,59 +1293,85 @@ Tensor sum(const Tensor& a, std::size_t dim, bool keepdim) {
     const float* input_data = a.data();
     float* output_data = result.data();
 
-    // Compute strides for efficient indexing
-    std::vector<std::ptrdiff_t> input_strides_pt = a.impl()->get_strides();
-    std::vector<std::size_t> input_strides(input_strides_pt.begin(), input_strides_pt.end());
+    // Use SIMD kernel for contiguous tensors
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
 
-    // Size of the dimension we're summing over
-    std::size_t dim_size = input_shape[dim];
+    if (a_contig && result_contig) {
+        // Use optimized strided reduction kernel
+        std::vector<std::ptrdiff_t> input_strides = a.impl()->get_strides();
 
-    // For each output element, compute the sum along the specified dimension
-    std::size_t total_output_elements = result.numel();
-    for (std::size_t i = 0; i < total_output_elements; ++i) {
-        // Compute input coordinates for this output element
-        std::vector<std::size_t> input_coords(input_shape.size(), 0);
-        std::size_t remaining = i;
-
-        // Work backwards through output dimensions to get coordinates
-        for (int j = static_cast<int>(output_shape.size()) - 1; j >= 0; --j) {
-            std::size_t out_coord = remaining % output_shape[j];
-            remaining /= output_shape[j];
-
-            // Map output coordinate to input coordinate
-            std::size_t in_idx = 0;
-            std::size_t adjusted_out_coord = out_coord;
-            for (std::size_t k = 0; k < input_shape.size(); ++k) {
-                if (k == dim) {
-                    // Skip the reduced dimension
-                    continue;
-                }
-                if (in_idx == j) {
-                    input_coords[k] = adjusted_out_coord;
-                    break;
-                }
-                in_idx++;
-            }
+        // Compute outer_size (product of dimensions before dim) and inner_size (product of dimensions after dim)
+        size_t outer_size = 1;
+        for (size_t i = 0; i < dim; ++i) {
+            outer_size *= input_shape[i];
+        }
+        size_t inner_size = 1;
+        for (size_t i = dim + 1; i < input_shape.size(); ++i) {
+            inner_size *= input_shape[i];
         }
 
-        // No insertion needed; input_coords already has the correct shape.
+        simd::dispatch([&](auto tag) {
+            simd::sum_dim_kernel(tag, output_data, input_data,
+                                 input_shape.data(), input_strides.data(),
+                                 dim, input_shape.size(), outer_size, inner_size);
+        });
+    } else {
+        // Scalar fallback for non-contiguous tensors
+        // Compute strides for efficient indexing
+        std::vector<std::ptrdiff_t> input_strides_pt = a.impl()->get_strides();
+        std::vector<std::size_t> input_strides(input_strides_pt.begin(), input_strides_pt.end());
 
-        // Now compute the sum along the specified dimension
-        float sum_val = 0.0f;
-        for (std::size_t j = 0; j < dim_size; ++j) {
-            // Set the coordinate for the dimension we're summing over
-            input_coords[dim] = j;
+        // Size of the dimension we're summing over
+        std::size_t dim_size = input_shape[dim];
 
-            // Compute offset in input tensor
-            std::size_t offset = 0;
-            for (std::size_t k = 0; k < input_shape.size(); ++k) {
-                offset += input_coords[k] * input_strides[k];
+        // For each output element, compute the sum along the specified dimension
+        std::size_t total_output_elements = result.numel();
+        for (std::size_t i = 0; i < total_output_elements; ++i) {
+            // Compute input coordinates for this output element
+            std::vector<std::size_t> input_coords(input_shape.size(), 0);
+            std::size_t remaining = i;
+
+            // Work backwards through output dimensions to get coordinates
+            for (int j = static_cast<int>(output_shape.size()) - 1; j >= 0; --j) {
+                std::size_t out_coord = remaining % output_shape[j];
+                remaining /= output_shape[j];
+
+                // Map output coordinate to input coordinate
+                std::size_t in_idx = 0;
+                std::size_t adjusted_out_coord = out_coord;
+                for (std::size_t k = 0; k < input_shape.size(); ++k) {
+                    if (k == dim) {
+                        // Skip the reduced dimension
+                        continue;
+                    }
+                    if (in_idx == static_cast<std::size_t>(j)) {
+                        input_coords[k] = adjusted_out_coord;
+                        break;
+                    }
+                    in_idx++;
+                }
             }
 
-            sum_val += input_data[offset];
-        }
+            // No insertion needed; input_coords already has the correct shape.
 
-        output_data[i] = sum_val;
+            // Now compute the sum along the specified dimension
+            float sum_val = 0.0f;
+            for (std::size_t j = 0; j < dim_size; ++j) {
+                // Set the coordinate for the dimension we're summing over
+                input_coords[dim] = j;
+
+                // Compute offset in input tensor
+                std::size_t offset = 0;
+                for (std::size_t k = 0; k < input_shape.size(); ++k) {
+                    offset += input_coords[k] * input_strides[k];
+                }
+
+                sum_val += input_data[offset];
+            }
+
+            output_data[i] = sum_val;
+        }
     }
 
     // Autograd graph building
@@ -1258,7 +1398,7 @@ Tensor mean(const Tensor& a, std::size_t dim) {
     // Handle zero-sized dimension case
     std::size_t dim_size = a.shape()[dim];
     if (dim_size == 0) {
-        // For zero-sized dimension, mean is undefined 
+        // For zero-sized dimension, mean is undefined
         // Following NumPy, we return NaN for mean over zero-sized dimension
         std::vector<std::size_t> output_shape;
         for (std::size_t i = 0; i < a.shape().size(); ++i) {
@@ -1287,9 +1427,19 @@ Tensor mean(const Tensor& a, std::size_t dim) {
     const float* sum_data = sum_result.data();
     float* result_data = result.data();
 
-    // Divide each element by the dimension size
-    for (std::size_t i = 0; i < result.numel(); ++i) {
-        result_data[i] = sum_data[i] / static_cast<float>(dim_size);
+    // Use SIMD kernel for contiguous tensors
+    bool sum_contig = sum_result.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
+    if (sum_contig && result_contig) {
+        simd::dispatch([&](auto tag) {
+            simd::div_scalar_kernel(tag, result_data, sum_data, static_cast<float>(dim_size), result.numel());
+        });
+    } else {
+        // Divide each element by the dimension size
+        for (std::size_t i = 0; i < result.numel(); ++i) {
+            result_data[i] = sum_data[i] / static_cast<float>(dim_size);
+        }
     }
 
     // Autograd graph building
@@ -1401,7 +1551,7 @@ Tensor max(const Tensor& a, std::size_t dim) {
 
     // Autograd graph building
     if (a.requires_grad()) {
-        auto grad_fn = std::make_shared<MaxBackward>(a, result, dim);
+        auto grad_fn = std::make_shared<MaxBackward>(a, dim);
         if (a.impl()->grad_fn_) {
             grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
         } else {
@@ -1508,7 +1658,7 @@ Tensor min(const Tensor& a, std::size_t dim) {
 
     // Autograd graph building
     if (a.requires_grad()) {
-        auto grad_fn = std::make_shared<MinBackward>(a, result, dim);
+        auto grad_fn = std::make_shared<MinBackward>(a, dim);
         if (a.impl()->grad_fn_) {
             grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
         } else {
@@ -1551,32 +1701,42 @@ Tensor log_softmax(const Tensor& a) {
     const float* input_data = a.data();
     float* output_data = result.data();
 
-    // Process each slice along the last dimension
-    for (std::size_t outer = 0; outer < outer_size; ++outer) {
-        // Find max value in this slice
-        float max_val = input_data[outer * inner_size]; // Initialize with first element
-        for (std::size_t i = 1; i < inner_size; ++i) {
-            float val = input_data[outer * inner_size + i];
-            if (val > max_val) {
-                max_val = val;
+    // Use SIMD kernel for contiguous tensors
+    bool a_contig = a.is_contiguous();
+    bool result_contig = result.is_contiguous();
+
+    if (a_contig && result_contig) {
+        simd::dispatch([&](auto tag) {
+            simd::log_softmax_kernel(tag, output_data, input_data, outer_size, inner_size);
+        });
+    } else {
+        // Process each slice along the last dimension (scalar fallback)
+        for (std::size_t outer = 0; outer < outer_size; ++outer) {
+            // Find max value in this slice
+            float max_val = input_data[outer * inner_size]; // Initialize with first element
+            for (std::size_t i = 1; i < inner_size; ++i) {
+                float val = input_data[outer * inner_size + i];
+                if (val > max_val) {
+                    max_val = val;
+                }
             }
-        }
 
-        // Compute exponentials and their sum
-        float exp_sum = 0.0f;
-        for (std::size_t i = 0; i < inner_size; ++i) {
-            float val = input_data[outer * inner_size + i];
-            float exp_val = std::exp(val - max_val);
-            exp_sum += exp_val;
-        }
+            // Compute exponentials and their sum
+            float exp_sum = 0.0f;
+            for (std::size_t i = 0; i < inner_size; ++i) {
+                float val = input_data[outer * inner_size + i];
+                float exp_val = std::exp(val - max_val);
+                exp_sum += exp_val;
+            }
 
-        // Compute log of the sum
-        float log_exp_sum = std::log(exp_sum);
+            // Compute log of the sum
+            float log_exp_sum = std::log(exp_sum);
 
-        // Compute log_softmax: (x_i - max_val) - log_sum_exp
-        for (std::size_t i = 0; i < inner_size; ++i) {
-            float val = input_data[outer * inner_size + i];
-            output_data[outer * inner_size + i] = (val - max_val) - log_exp_sum;
+            // Compute log_softmax: (x_i - max_val) - log_sum_exp
+            for (std::size_t i = 0; i < inner_size; ++i) {
+                float val = input_data[outer * inner_size + i];
+                output_data[outer * inner_size + i] = (val - max_val) - log_exp_sum;
+            }
         }
     }
 
@@ -1631,17 +1791,10 @@ Tensor matmul(const Tensor& a, const Tensor& b) {
     const float* b_data = b.data();
     float* result_data = result.data();
 
-    // Perform matrix multiplication: C = A * B
-    // C[i, j] = sum_k (A[i, k] * B[k, j])
-    for (std::size_t i = 0; i < M; ++i) {
-        for (std::size_t j = 0; j < N; ++j) {
-            float sum = 0.0f;
-            for (std::size_t k = 0; k < K; ++k) {
-                sum += a_data[i * K + k] * b_data[k * N + j];
-            }
-            result_data[i * N + j] = sum;
-        }
-    }
+    // Use SIMD kernel for contiguous tensors
+    simd::dispatch([&](auto tag) {
+        simd::matmul_kernel(tag, result_data, a_data, b_data, M, N, K);
+    });
 
     // Autograd graph building
     bool requires_grad = a.requires_grad() || b.requires_grad();
@@ -1757,6 +1910,17 @@ Tensor greater(const Tensor& a, const Tensor& b) {
     std::vector<std::size_t> a_strides = compute_strides(a_padded);
     std::vector<std::size_t> b_strides = compute_strides(b_padded);
     std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
     const float* a_data = a.data();
     const float* b_data = b.data();
     float* result_data = result.data();
@@ -1765,7 +1929,6 @@ Tensor greater(const Tensor& a, const Tensor& b) {
     for (std::size_t linear = 0; linear < total; ++linear) {
         std::size_t a_offset = 0;
         std::size_t b_offset = 0;
-        std::size_t remaining = linear;
         for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
             std::size_t idx = result_indices[i];
             a_offset += idx * a_strides[i];
@@ -1825,6 +1988,17 @@ Tensor lesser(const Tensor& a, const Tensor& b) {
     std::vector<std::size_t> a_strides = compute_strides(a_padded);
     std::vector<std::size_t> b_strides = compute_strides(b_padded);
     std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
     const float* a_data = a.data();
     const float* b_data = b.data();
     float* result_data = result.data();
@@ -1833,7 +2007,6 @@ Tensor lesser(const Tensor& a, const Tensor& b) {
     for (std::size_t linear = 0; linear < total; ++linear) {
         std::size_t a_offset = 0;
         std::size_t b_offset = 0;
-        std::size_t remaining = linear;
         for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
             std::size_t idx = result_indices[i];
             a_offset += idx * a_strides[i];
@@ -1892,6 +2065,17 @@ Tensor equal(const Tensor& a, const Tensor& b) {
     std::vector<std::size_t> a_strides = compute_strides(a_padded);
     std::vector<std::size_t> b_strides = compute_strides(b_padded);
     std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
     const float* a_data = a.data();
     const float* b_data = b.data();
     float* result_data = result.data();
@@ -1900,7 +2084,6 @@ Tensor equal(const Tensor& a, const Tensor& b) {
     for (std::size_t linear = 0; linear < total; ++linear) {
         std::size_t a_offset = 0;
         std::size_t b_offset = 0;
-        std::size_t remaining = linear;
         for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
             std::size_t idx = result_indices[i];
             a_offset += idx * a_strides[i];
@@ -1972,6 +2155,17 @@ Tensor greater_equal(const Tensor& a, const Tensor& b) {
     std::vector<std::size_t> a_strides = compute_strides(a_padded);
     std::vector<std::size_t> b_strides = compute_strides(b_padded);
     std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
     const float* a_data = a.data();
     const float* b_data = b.data();
     float* result_data = result.data();
@@ -2038,6 +2232,17 @@ Tensor lesser_equal(const Tensor& a, const Tensor& b) {
     std::vector<std::size_t> a_strides = compute_strides(a_padded);
     std::vector<std::size_t> b_strides = compute_strides(b_padded);
     std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
     const float* a_data = a.data();
     const float* b_data = b.data();
     float* result_data = result.data();

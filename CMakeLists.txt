@@ -32,6 +32,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
     if(CMAKE_BUILD_TYPE MATCHES Debug)
         if(ENABLE_SANITIZERS)
             set(SANITIZER_FLAGS -fsanitize=address,undefined)
+            # Sanitizers must also be passed at link time so the runtime is
+            # linked and the objects are relocated as PIC/PIE.
+            add_link_options(${SANITIZER_FLAGS})
             # Add -Werror when sanitizers are enabled in Debug
             list(APPEND COMPILE_FLAGS ${BASE_WARNING_FLAGS} ${SANITIZER_FLAGS} -Werror)
         else()
@@ -49,12 +52,28 @@ endif()
 # Set compiler flags globally
 add_compile_options(${COMPILE_FLAGS})
 
-# AVX2 definition
+# AVX2 definition. NOTE: when ON, source files may use <immintrin.h>. The
+# AVX2 kernel TU is always built (when the compiler supports the flags) and is
+# reached only through runtime CPU dispatch, so enabling this globally is not
+# required for correctness.
 if(WITH_AVX2)
     add_compile_definitions(WITH_AVX2)
     message(STATUS "AVX2 optimizations enabled")
 else()
     message(STATUS "AVX2 optimizations disabled (scalar reference only)")
+endif()
+
+# Detect whether the toolchain can emit AVX2/FMA code for the kernel TU.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+check_cxx_compiler_flag("-mfma" COMPILER_SUPPORTS_FMA)
+
+set(AVX2_SOURCES "")
+if(COMPILER_SUPPORTS_AVX2 AND COMPILER_SUPPORTS_FMA)
+    set(AVX2_SOURCES src/simd/kernels_avx2.cpp)
+    message(STATUS "AVX2 kernels: enabled (compiled with -mavx2 -mfma per-file)")
+else()
+    message(STATUS "AVX2 kernels: disabled (compiler lacks -mavx2/-mfma)")
 endif()
 
 # Library target - sources will be added as we implement them
@@ -65,7 +84,18 @@ add_library(autograd
     src/operations.cpp
     src/autograd_engine.cpp
     src/function_nodes.cpp
+    src/simd/cpu_capabilities.cpp
+    src/simd/kernels_scalar.cpp
+    ${AVX2_SOURCES}
 )
+
+# Apply AVX2/FMA only to the SIMD kernel TU. Applying these globally would let
+# the compiler vectorize unrelated code with AVX2, producing a binary that
+# faults on CPUs without it.
+if(COMPILER_SUPPORTS_AVX2 AND COMPILER_SUPPORTS_FMA)
+    set_source_files_properties(src/simd/kernels_avx2.cpp
+        PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+endif()
 
 target_include_directories(autograd
     PUBLIC
@@ -86,6 +116,7 @@ if(BUILD_TESTING)
         tests/test_tensor_impl.cpp
         tests/test_tensor.cpp
         tests/test_autograd.cpp
+        tests/test_simd.cpp
     )
 
 add_executable(hardcore_tests
@@ -110,6 +141,12 @@ add_executable(hardcore_tests
             gtest_main
             pthread
     )
+
+    # Let the SIMD tests know whether AVX2 kernel symbols were compiled in, so
+    # they don't reference undefined symbols on toolchains without -mavx2.
+    if(COMPILER_SUPPORTS_AVX2 AND COMPILER_SUPPORTS_FMA)
+        target_compile_definitions(autograd_tests PRIVATE HAS_AVX2_KERNELS=1)
+    endif()
 
     enable_testing()
     add_test(NAME autograd_tests COMMAND autograd_tests)
