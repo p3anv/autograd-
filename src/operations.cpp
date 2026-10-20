@@ -5,6 +5,8 @@
 #include "autograd/dispatch.hpp"
 #include <stdexcept>
 #include <cmath>
+#include <random>
+#include <limits>
 
 namespace autograd {
 
@@ -809,7 +811,7 @@ Tensor neg(const Tensor& a) {
 
     // Autograd graph building
     if (a.requires_grad()) {
-        auto grad_fn = std::make_shared<NegBackward>();
+        auto grad_fn = std::make_shared<NegBackward>(a.shape());
         if (a.impl()->grad_fn_) {
             grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
         } else {
@@ -1671,6 +1673,200 @@ Tensor min(const Tensor& a, std::size_t dim) {
     return result;
 }
 
+// Argmax - returns indices of maximum values along a dimension
+Tensor argmax(const Tensor& a, std::size_t dim) {
+    // Validate dimension
+    if (dim >= a.dim()) {
+        throw std::invalid_argument("Dimension out of range");
+    }
+
+    // Handle zero-sized dimension case
+    std::size_t dim_size = a.shape()[dim];
+    if (dim_size == 0) {
+        // For zero-sized dimension, argmax is undefined
+        std::vector<std::size_t> output_shape;
+        for (std::size_t i = 0; i < a.shape().size(); ++i) {
+            if (i != dim) {
+                output_shape.push_back(a.shape()[i]);
+            }
+        }
+        Tensor result(output_shape, false);
+        // Fill with -1 to indicate undefined
+        if (result.numel() > 0) {
+            std::fill(result.data(), result.data() + result.numel(), -1.0f);
+        }
+        return result;
+    }
+
+    // Compute output shape: same as input but with dim dimension removed
+    std::vector<std::size_t> input_shape = a.shape();
+    std::vector<std::size_t> output_shape;
+    for (std::size_t i = 0; i < input_shape.size(); ++i) {
+        if (i != dim) {
+            output_shape.push_back(input_shape[i]);
+        }
+    }
+
+    // Create result tensor
+    Tensor result(output_shape, false);
+
+    // Early return for empty tensors
+    if (result.numel() == 0) {
+        return result;
+    }
+
+    // Get data pointers
+    const float* input_data = a.data();
+    float* output_data = result.data();
+
+    // Compute strides for efficient indexing
+    std::vector<std::ptrdiff_t> input_strides_pt = a.impl()->get_strides();
+    std::vector<std::size_t> input_strides(input_strides_pt.begin(), input_strides_pt.end());
+
+    // For each output element, compute the argmax along the specified dimension
+    std::size_t total_output_elements = result.numel();
+    for (std::size_t i = 0; i < total_output_elements; ++i) {
+        // Compute the offset in the input tensor for this output element
+        std::size_t remaining = i;
+
+        // Compute coordinates in output tensor
+        std::vector<std::size_t> output_coords(output_shape.size());
+        for (int j = static_cast<int>(output_shape.size()) - 1; j >= 0; --j) {
+            output_coords[j] = remaining % output_shape[j];
+            remaining /= output_shape[j];
+        }
+
+        // Map output coordinates to input coordinates (skipping the reduced dimension)
+        std::size_t input_offset_mapped = 0;
+        std::size_t in_idx = 0;
+        for (std::size_t j = 0; j < input_shape.size(); ++j) {
+            if (j == dim) {
+                // Skip the reduced dimension
+                continue;
+            }
+            input_offset_mapped += output_coords[in_idx] * input_strides[j];
+            in_idx++;
+        }
+
+        // Now compute the argmax along the specified dimension for this output location
+        float max_val = -std::numeric_limits<float>::infinity();
+        std::size_t max_idx = 0;
+        for (std::size_t j = 0; j < dim_size; ++j) {
+            // Compute input offset: base_offset + j * stride_of_dim_in_input
+            std::size_t offset = input_offset_mapped + j * input_strides[dim];
+            float val = input_data[offset];
+            if (val > max_val) {
+                max_val = val;
+                max_idx = j;
+            }
+        }
+
+        output_data[i] = static_cast<float>(max_idx);
+    }
+
+    // Note: argmax does not have a meaningful gradient (discrete operation)
+    // We don't build autograd graph for argmax
+
+    return result;
+}
+
+// Argmin - returns indices of minimum values along a dimension
+Tensor argmin(const Tensor& a, std::size_t dim) {
+    // Validate dimension
+    if (dim >= a.dim()) {
+        throw std::invalid_argument("Dimension out of range");
+    }
+
+    // Handle zero-sized dimension case
+    std::size_t dim_size = a.shape()[dim];
+    if (dim_size == 0) {
+        // For zero-sized dimension, argmin is undefined
+        std::vector<std::size_t> output_shape;
+        for (std::size_t i = 0; i < a.shape().size(); ++i) {
+            if (i != dim) {
+                output_shape.push_back(a.shape()[i]);
+            }
+        }
+        Tensor result(output_shape, false);
+        // Fill with -1 to indicate undefined
+        if (result.numel() > 0) {
+            std::fill(result.data(), result.data() + result.numel(), -1.0f);
+        }
+        return result;
+    }
+
+    // Compute output shape: same as input but with dim dimension removed
+    std::vector<std::size_t> input_shape = a.shape();
+    std::vector<std::size_t> output_shape;
+    for (std::size_t i = 0; i < input_shape.size(); ++i) {
+        if (i != dim) {
+            output_shape.push_back(input_shape[i]);
+        }
+    }
+
+    // Create result tensor
+    Tensor result(output_shape, false);
+
+    // Early return for empty tensors
+    if (result.numel() == 0) {
+        return result;
+    }
+
+    // Get data pointers
+    const float* input_data = a.data();
+    float* output_data = result.data();
+
+    // Compute strides for efficient indexing
+    std::vector<std::ptrdiff_t> input_strides_pt = a.impl()->get_strides();
+    std::vector<std::size_t> input_strides(input_strides_pt.begin(), input_strides_pt.end());
+
+    // For each output element, compute the argmin along the specified dimension
+    std::size_t total_output_elements = result.numel();
+    for (std::size_t i = 0; i < total_output_elements; ++i) {
+        // Compute the offset in the input tensor for this output element
+        std::size_t remaining = i;
+
+        // Compute coordinates in output tensor
+        std::vector<std::size_t> output_coords(output_shape.size());
+        for (int j = static_cast<int>(output_shape.size()) - 1; j >= 0; --j) {
+            output_coords[j] = remaining % output_shape[j];
+            remaining /= output_shape[j];
+        }
+
+        // Map output coordinates to input coordinates (skipping the reduced dimension)
+        std::size_t input_offset_mapped = 0;
+        std::size_t in_idx = 0;
+        for (std::size_t j = 0; j < input_shape.size(); ++j) {
+            if (j == dim) {
+                // Skip the reduced dimension
+                continue;
+            }
+            input_offset_mapped += output_coords[in_idx] * input_strides[j];
+            in_idx++;
+        }
+
+        // Now compute the argmin along the specified dimension for this output location
+        float min_val = std::numeric_limits<float>::infinity();
+        std::size_t min_idx = 0;
+        for (std::size_t j = 0; j < dim_size; ++j) {
+            // Compute input offset: base_offset + j * stride_of_dim_in_input
+            std::size_t offset = input_offset_mapped + j * input_strides[dim];
+            float val = input_data[offset];
+            if (val < min_val) {
+                min_val = val;
+                min_idx = j;
+            }
+        }
+
+        output_data[i] = static_cast<float>(min_idx);
+    }
+
+    // Note: argmin does not have a meaningful gradient (discrete operation)
+    // We don't build autograd graph for argmin
+
+    return result;
+}
+
 // Normalization
 Tensor log_softmax(const Tensor& a) {
     // For numerical stability, we compute log_softmax as:
@@ -1742,7 +1938,7 @@ Tensor log_softmax(const Tensor& a) {
 
     // Autograd graph building
     if (a.requires_grad()) {
-        auto grad_fn = std::make_shared<SoftmaxBackward>(result);
+        auto grad_fn = std::make_shared<LogSoftmaxBackward>(result);
         if (a.impl()->grad_fn_) {
             grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
         } else {
@@ -1832,6 +2028,20 @@ Tensor sum_all(const Tensor& a) {
         sum += input_data[i];
     }
     *res_data = sum;
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        // sum_all is equivalent to sum over all dimensions
+        auto grad_fn = std::make_shared<SumBackward>(a.shape(), std::numeric_limits<std::size_t>::max());
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1850,6 +2060,19 @@ Tensor transpose(const Tensor& a) {
             output_data[j * rows + i] = input_data[i * cols + j];
         }
     }
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        auto grad_fn = std::make_shared<TransposeBackward>(result.shape());
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
     return result;
 }
 
@@ -1866,6 +2089,7 @@ Tensor clamp(const Tensor& input, const Tensor& min, const Tensor& max) {
     Tensor gt_mask = Tensor::scalar(1.0f) - le_mask; // 1 where tmp > max, else 0
     Tensor result = le_mask * tmp + gt_mask * max; // min(tmp, max)
 
+    // Autograd graph building is handled by the operations above
     return result;
 }
 
@@ -2268,6 +2492,237 @@ Tensor lesser_equal(const Tensor& a, const Tensor& b) {
         }
     }
     return result;
+}
+
+// Global mean (mean over all elements)
+Tensor mean(const Tensor& a) {
+    std::size_t total = a.numel();
+    if (total == 0) {
+        return Tensor({}, false);
+    }
+    Tensor sum_result = sum_all(a);
+    Tensor result({}, false);
+    *result.data() = sum_result.item() / static_cast<float>(total);
+
+    // Autograd graph building
+    if (a.requires_grad()) {
+        // mean = sum_all / total
+        // We can use the same SumBackward but the gradient will be divided by total
+        auto grad_fn = std::make_shared<MeanBackward>(a.shape(), std::numeric_limits<std::size_t>::max());
+        if (a.impl()->grad_fn_) {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl()->grad_fn_, 0));
+        } else {
+            grad_fn->parents_.push_back(internal::make_parent_edge(a.impl(), 0));
+        }
+        result.impl()->grad_fn_ = std::move(grad_fn);
+        result.impl()->requires_grad_ = true;
+    }
+
+    return result;
+}
+
+Tensor maximum(const Tensor& a, const Tensor& b) {
+    // Element-wise maximum with broadcasting
+    // This is used for clamp and other operations
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in maximum");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val > b_val) ? a_val : b_val;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+Tensor minimum(const Tensor& a, const Tensor& b) {
+    // Element-wise minimum with broadcasting
+    // This is used for clamp and other operations
+    std::vector<std::size_t> a_shape = a.shape();
+    std::vector<std::size_t> b_shape = b.shape();
+    std::size_t max_dim = std::max(a_shape.size(), b_shape.size());
+    std::vector<std::size_t> a_padded = a_shape;
+    std::vector<std::size_t> b_padded = b_shape;
+    while (a_padded.size() < max_dim) {
+        a_padded.insert(a_padded.begin(), 1);
+    }
+    while (b_padded.size() < max_dim) {
+        b_padded.insert(b_padded.begin(), 1);
+    }
+    std::vector<std::size_t> result_shape;
+    for (std::size_t i = 0; i < max_dim; ++i) {
+        if (a_padded[i] == b_padded[i]) {
+            result_shape.push_back(a_padded[i]);
+        } else if (a_padded[i] == 1) {
+            result_shape.push_back(b_padded[i]);
+        } else if (b_padded[i] == 1) {
+            result_shape.push_back(a_padded[i]);
+        } else {
+            throw std::invalid_argument("Incompatible shapes for broadcasting in minimum");
+        }
+    }
+    Tensor result(result_shape, false);
+    if (result.numel() == 0) {
+        return result;
+    }
+    auto compute_strides = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> strides(shape.size(), 1);
+        for (int i = static_cast<int>(shape.size()) - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
+        return strides;
+    };
+    std::vector<std::size_t> a_strides = compute_strides(a_padded);
+    std::vector<std::size_t> b_strides = compute_strides(b_padded);
+    std::vector<std::size_t> result_strides = compute_strides(result_shape);
+    // A broadcast dimension (operand extent 1 while the result extent is > 1)
+    // must not step through the operand's buffer: every output index along it
+    // addresses the same element, so the stride is zero.
+    for (std::size_t i = 0; i < result_shape.size(); ++i) {
+        if (a_padded[i] == 1 && result_shape[i] != 1) {
+            a_strides[i] = 0;
+        }
+        if (b_padded[i] == 1 && result_shape[i] != 1) {
+            b_strides[i] = 0;
+        }
+    }
+    const float* a_data = a.data();
+    const float* b_data = b.data();
+    float* result_data = result.data();
+    std::size_t total = result.numel();
+    std::vector<std::size_t> result_indices(result_shape.size(), 0);
+    for (std::size_t linear = 0; linear < total; ++linear) {
+        std::size_t a_offset = 0;
+        std::size_t b_offset = 0;
+        for (int i = static_cast<int>(result_shape.size()) - 1; i >= 0; --i) {
+            std::size_t idx = result_indices[i];
+            a_offset += idx * a_strides[i];
+            b_offset += idx * b_strides[i];
+        }
+        float a_val = a_data[a_offset];
+        float b_val = b_data[b_offset];
+        result_data[linear] = (a_val < b_val) ? a_val : b_val;
+        for (std::size_t i = result_shape.size(); i > 0; --i) {
+            std::size_t idx = i - 1;
+            if (++result_indices[idx] < result_shape[idx]) {
+                break;
+            }
+            result_indices[idx] = 0;
+        }
+    }
+    return result;
+}
+
+// Weight initialization functions
+Tensor kaiming_uniform(std::vector<std::size_t> shape, float gain, unsigned int seed) {
+    if (shape.size() != 2) {
+        throw std::invalid_argument("kaiming_uniform only supports 2D shapes [fan_out, fan_in]");
+    }
+    std::size_t fan_in = shape[1];
+    std::size_t fan_out = shape[0];
+
+    // Kaiming/He initialization: uniform distribution in [-bound, bound]
+    // bound = gain * sqrt(3 / fan_in)
+    // For ReLU, gain = sqrt(2)
+    float bound = gain * std::sqrt(3.0f / fan_in);
+
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<float> dist(-bound, bound);
+
+    Tensor weight = Tensor::empty(shape, false);
+    float* data = weight.data();
+    for (std::size_t i = 0; i < fan_out * fan_in; ++i) {
+        data[i] = dist(gen);
+    }
+
+    return weight;
+}
+
+Tensor xavier_uniform(std::vector<std::size_t> shape, float gain, unsigned int seed) {
+    if (shape.size() != 2) {
+        throw std::invalid_argument("xavier_uniform only supports 2D shapes [fan_out, fan_in]");
+    }
+    std::size_t fan_in = shape[1];
+    std::size_t fan_out = shape[0];
+
+    // Xavier/Glorot initialization: uniform distribution in [-bound, bound]
+    // bound = gain * sqrt(6 / (fan_in + fan_out))
+    float bound = gain * std::sqrt(6.0f / (fan_in + fan_out));
+
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<float> dist(-bound, bound);
+
+    Tensor weight = Tensor::empty(shape, false);
+    float* data = weight.data();
+    for (std::size_t i = 0; i < fan_out * fan_in; ++i) {
+        data[i] = dist(gen);
+    }
+
+    return weight;
 }
 
 } // namespace autograd

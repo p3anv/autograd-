@@ -126,9 +126,12 @@ private:
  */
 class NegBackward : public FunctionNode {
 public:
-    NegBackward();
+    NegBackward(const std::vector<std::size_t>& shape);
     std::vector<Tensor> backward(const std::vector<Tensor>& grad_outputs) override;
     std::string name() const override { return "NegBackward"; }
+
+private:
+    std::vector<std::size_t> shape_;
 };
 
 /**
@@ -236,6 +239,19 @@ private:
 };
 
 /**
+ * @brief Backward node for log_softmax operation.
+ */
+class LogSoftmaxBackward : public FunctionNode {
+public:
+    LogSoftmaxBackward(const Tensor& output);
+    std::vector<Tensor> backward(const std::vector<Tensor>& grad_outputs) override;
+    std::string name() const override { return "LogSoftmaxBackward"; }
+
+private:
+    Tensor output_detached_; // This is log_softmax output
+};
+
+/**
  * @brief Backward node for sum reduction operation.
  */
 class SumBackward : public FunctionNode {
@@ -303,6 +319,16 @@ public:
 private:
     Tensor a_detached_;
     Tensor b_detached_;
+};
+
+/**
+ * @brief Backward node for transpose operation.
+ */
+class TransposeBackward : public FunctionNode {
+public:
+    explicit TransposeBackward(const std::vector<std::size_t>& output_shape);
+    std::vector<Tensor> backward(const std::vector<Tensor>& grad_outputs) override;
+    std::string name() const override { return "TransposeBackward"; }
 };
 
 } // namespace autograd

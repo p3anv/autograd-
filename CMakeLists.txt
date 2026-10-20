@@ -87,6 +87,9 @@ add_library(autograd
     src/simd/cpu_capabilities.cpp
     src/simd/kernels_scalar.cpp
     ${AVX2_SOURCES}
+    src/losses.cpp
+    src/mnist_loader.cpp
+    src/optimizer.cpp
 )
 
 # Apply AVX2/FMA only to the SIMD kernel TU. Applying these globally would let
@@ -158,9 +161,18 @@ if(BUILD_BENCHMARKS)
     message(STATUS "Benchmark targets will be implemented in later phases")
 endif()
 
-# Examples target placeholder
+# Examples target
 if(BUILD_EXAMPLES)
-    message(STATUS "Example targets will be implemented in later phases")
+    add_executable(mnist_train
+        examples/mnist_train.cpp
+        examples/mnist_model.cpp
+    )
+
+    target_link_libraries(mnist_train PRIVATE autograd)
+    target_include_directories(mnist_train PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    message(STATUS "Example targets: mnist_train enabled")
+else()
+    message(STATUS "Example targets: disabled (set -DBUILD_EXAMPLES=ON to enable)")
 endif()
 
 # Install rules

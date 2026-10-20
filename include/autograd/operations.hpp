@@ -28,8 +28,11 @@ Tensor softmax(const Tensor& a);
 // Reductions
 Tensor sum(const Tensor& a, std::size_t dim, bool keepdim = false);
 Tensor mean(const Tensor& a, std::size_t dim);
+Tensor mean(const Tensor& a);  // global mean over all elements
 Tensor max(const Tensor& a, std::size_t dim);
 Tensor min(const Tensor& a, std::size_t dim);
+Tensor argmax(const Tensor& a, std::size_t dim);
+Tensor argmin(const Tensor& a, std::size_t dim);
 
 // Normalization
 Tensor log_softmax(const Tensor& a);
@@ -41,6 +44,8 @@ Tensor matmul(const Tensor& a, const Tensor& b);
 Tensor transpose(const Tensor& a); // assumes 2D tensor
 Tensor sum_all(const Tensor& a);   // sums over all dimensions to produce a scalar
 Tensor clamp(const Tensor& input, const Tensor& min, const Tensor& max);
+Tensor maximum(const Tensor& a, const Tensor& b);
+Tensor minimum(const Tensor& a, const Tensor& b);
 
 // Comparison operations (with broadcasting support)
 Tensor greater(const Tensor& a, const Tensor& b);   // greater than (a > b)
@@ -49,5 +54,9 @@ Tensor lesser(const Tensor& a, const Tensor& b);   // less than (a < b)
 Tensor lesser_equal(const Tensor& a, const Tensor& b);   // less or equal (a <= b)
 Tensor equal(const Tensor& a, const Tensor& b);   // equal (a == b)
 Tensor not_equal(const Tensor& a, const Tensor& b);   // not equal (a != b)
+
+// Weight initialization
+Tensor kaiming_uniform(std::vector<std::size_t> shape, float gain = 1.0f, unsigned int seed = 42);
+Tensor xavier_uniform(std::vector<std::size_t> shape, float gain = 1.0f, unsigned int seed = 42);
 
 } // namespace autograd

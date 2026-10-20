@@ -1,8 +1,10 @@
 #include "autograd/function_nodes.hpp"
 #include "autograd/tensor_impl.hpp"
 #include "autograd/tensor.hpp"
+#include "autograd/operations.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <numeric>
 #include <stdexcept>
 
@@ -455,7 +457,8 @@ std::vector<Tensor> PowBackward::backward(const std::vector<Tensor>& grad_output
 }
 
 // NegBackward
-NegBackward::NegBackward() : FunctionNode({}) {}
+NegBackward::NegBackward(const std::vector<std::size_t>& shape)
+    : FunctionNode(shape), shape_(shape) {}
 
 std::vector<Tensor> NegBackward::backward(const std::vector<Tensor>& grad_outputs) {
     // y = -x => dy/dx = -1
@@ -530,7 +533,9 @@ std::vector<Tensor> ReLUBackward::backward(const std::vector<Tensor>& grad_outpu
     Tensor grad_output = grad_outputs[0];
     Tensor zero = Tensor::scalar(0.0f);
     Tensor input_detached = input_detached_;
-    Tensor grad_input = grad_output * (input_detached > zero).to_float();
+    Tensor mask = (input_detached > zero).to_float();
+    Tensor grad_input = grad_output * mask;
+
     // No broadcasting
     return {grad_input.detach()};
 }
@@ -581,17 +586,50 @@ std::vector<Tensor> SoftmaxBackward::backward(const std::vector<Tensor>& grad_ou
     return {grad_input.detach()};
 }
 
+// LogSoftmaxBackward
+LogSoftmaxBackward::LogSoftmaxBackward(const Tensor& output)
+    : FunctionNode(output.shape()), output_detached_(output.detach()) {}
+
+std::vector<Tensor> LogSoftmaxBackward::backward(const std::vector<Tensor>& grad_outputs) {
+    // For log_softmax: log_softmax(x) = x - log(sum(exp(x))) along last dim
+    // Let y = log_softmax(x), L be the loss
+    // dL/dx = dL/dy * dy/dx
+    // dy/dx = I - softmax(x) (broadcasted)
+    // So grad_input = grad_output - softmax(output) * sum(grad_output, dim=-1, keepdim=True)
+    // Since output = log_softmax(x), softmax(x) = exp(output)
+    Tensor grad_output = grad_outputs[0];
+    Tensor output_detached = output_detached_; // This is log_softmax output
+
+    // softmax = exp(log_softmax) = exp(output)
+    Tensor softmax = autograd::exp(output_detached);
+
+    // Sum over last dimension
+    std::size_t last_dim = output_detached.shape().size() - 1;
+    Tensor sum_grad = grad_output.sum(last_dim, true); // keepdim=true
+
+    // grad_input = grad_output - softmax * sum_grad
+    Tensor grad_input = grad_output - softmax * sum_grad;
+
+    return {grad_input.detach()};
+}
+
 // SumBackward
 SumBackward::SumBackward(const std::vector<std::size_t>& input_shape, std::size_t dim)
     : FunctionNode({}), input_shape_(input_shape), dim_(dim) {
-    // Compute output shape: remove the dim-th dimension
-    std::vector<std::size_t> output_shape;
-    for (std::size_t i = 0; i < input_shape.size(); ++i) {
-        if (i != dim) {
-            output_shape.push_back(input_shape[i]);
+    // Handle sum_all case: dim == max size_t means sum over all dimensions
+    if (dim == std::numeric_limits<std::size_t>::max()) {
+        // Output is a scalar (empty shape)
+        output_shape_ = {};
+    } else {
+        // Compute output shape: remove the dim-th dimension
+        std::vector<std::size_t> output_shape;
+        for (std::size_t i = 0; i < input_shape.size(); ++i) {
+            if (i != dim) {
+                output_shape.push_back(input_shape[i]);
+            }
         }
+        output_shape_ = output_shape;
     }
-    output_shape_ = output_shape;
 }
 
 std::vector<Tensor> SumBackward::backward(const std::vector<Tensor>& grad_outputs) {
@@ -612,6 +650,14 @@ std::vector<Tensor> SumBackward::backward(const std::vector<Tensor>& grad_output
 
     // However, note that grad_output might have fewer dimensions than input.
     // We need to align the shapes.
+
+    // Handle sum_all case (dim == max size_t)
+    if (dim_ == std::numeric_limits<std::size_t>::max()) {
+        // grad_output is a scalar, broadcast to full input shape
+        Tensor ones = Tensor::ones(input_shape_, false);
+        Tensor grad_input = ones * grad_output;
+        return {grad_input.detach()};
+    }
 
     // Let's create a tensor of ones with the input shape, then multiply by grad_output expanded appropriately.
 
@@ -666,22 +712,43 @@ std::vector<Tensor> SumBackward::backward(const std::vector<Tensor>& grad_output
 // MeanBackward
 MeanBackward::MeanBackward(const std::vector<std::size_t>& input_shape, std::size_t dim)
     : FunctionNode({}), input_shape_(input_shape), dim_(dim) {
-    // Compute output shape: remove the dim-th dimension
-    std::vector<std::size_t> output_shape;
-    for (std::size_t i = 0; i < input_shape.size(); ++i) {
-        if (i != dim) {
-            output_shape.push_back(input_shape[i]);
+    // Handle sum_all case: dim == max size_t means sum over all dimensions
+    if (dim == std::numeric_limits<std::size_t>::max()) {
+        // Output is a scalar (empty shape)
+        output_shape_ = {};
+    } else {
+        // Compute output shape: remove the dim-th dimension
+        std::vector<std::size_t> output_shape;
+        for (std::size_t i = 0; i < input_shape.size(); ++i) {
+            if (i != dim) {
+                output_shape.push_back(input_shape[i]);
+            }
         }
+        output_shape_ = output_shape;
     }
-    output_shape_ = output_shape;
 }
 
 std::vector<Tensor> MeanBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
+
     // The gradient of mean is similar to sum, but we divide by the number of elements in the reduced dimension.
     // So, we first compute the gradient as for sum, then divide by input_shape[dim].
     // However, if input_shape[dim] is 0, we should avoid division by zero. But mean over zero elements
     // is undefined, so we assume input_shape[dim] > 0.
+
+    // Handle sum_all case (dim == max size_t)
+    if (dim_ == std::numeric_limits<std::size_t>::max()) {
+        // grad_output is a scalar, broadcast to full input shape
+        Tensor ones = Tensor::ones(input_shape_, false);
+        Tensor grad_input = ones * grad_output;
+        // Divide by total number of elements
+        size_t total_elements = 1;
+        for (size_t s : input_shape_) total_elements *= s;
+        Tensor size = Tensor::scalar(static_cast<float>(total_elements));
+        grad_input = grad_input / size;
+
+        return {grad_input.detach()};
+    }
 
     // Compute the sum-like gradient (as in SumBackward)
     std::vector<std::size_t> expanded_shape = input_shape_;
@@ -691,6 +758,9 @@ std::vector<Tensor> MeanBackward::backward(const std::vector<Tensor>& grad_outpu
     Tensor grad_input = ones * expanded_grad_output;
     // Now divide by the size of the reduced dimension
     Tensor size = Tensor::scalar(static_cast<float>(input_shape_[dim_]));
+    grad_input = grad_input / size;
+
+    return {grad_input.detach()};
     grad_input = grad_input / size;
 
     return {grad_input.detach()};
@@ -893,6 +963,7 @@ MatMulBackward::MatMulBackward(const Tensor& a, const Tensor& b)
 
 std::vector<Tensor> MatMulBackward::backward(const std::vector<Tensor>& grad_outputs) {
     Tensor grad_output = grad_outputs[0];
+
     // grad_a = grad_output * b^T
     // grad_b = a^T * grad_output
     // Note: we need to transpose b and a.
@@ -901,8 +972,24 @@ std::vector<Tensor> MatMulBackward::backward(const std::vector<Tensor>& grad_out
     Tensor grad_a = grad_output.matmul(b_transposed);
     Tensor grad_b = a_transposed.matmul(grad_output);
 
+    // The inputs to matmul were (a, b) where b might be a transposed tensor.
+    // The gradient grad_b is with respect to b, but the actual leaf parameter
+    // might be the original tensor before transpose. The transpose backward
+    // will handle transposing grad_b back to the original tensor's shape.
     // No broadcasting to worry about because matmul doesn't broadcast in our implementation.
     return {grad_a.detach(), grad_b.detach()};
+}
+
+// TransposeBackward
+TransposeBackward::TransposeBackward(const std::vector<std::size_t>& output_shape)
+    : FunctionNode(output_shape) {}
+
+std::vector<Tensor> TransposeBackward::backward(const std::vector<Tensor>& grad_outputs) {
+    // Transpose of a transpose is the original
+    Tensor grad_output = grad_outputs[0];
+    Tensor grad_input = grad_output.transpose();
+
+    return {grad_input.detach()};
 }
 
 } // namespace autograd

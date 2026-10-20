@@ -11,6 +11,7 @@
 #include <cfloat>
 #include <vector>
 #include <algorithm>
+#include <iostream>
 
 namespace autograd {
 namespace simd {
@@ -488,29 +489,25 @@ void log_softmax_kernel(Tag, float* dst, const float* src, size_t rows, size_t c
 // Matrix Multiplication (Blocked with 8x8 microkernel)
 // ----------------------------------------------------------------------------
 
-// Microkernel: computes C[8x8] += A[8xK] * B[Kx8] using FMA
-// A is row-major [8, K]: A[i*K + k] is element (i,k), row i is contiguous
-// B is column-major [K, 8]: B[k*8 + j] is element (k,j), column j is contiguous (8 elements per column)
-// C is row-major [8, 8]: C[i*ldc + j] is element (i,j)
-// This processes K in chunks of 8, expecting B to have exactly 8 columns with 8 elements each per chunk.
 static void matmul_microkernel_8x8(const float* A, const float* B, float* C, size_t K, size_t ldc) {
-    __m256 c0 = _mm256_setzero_ps();
-    __m256 c1 = _mm256_setzero_ps();
-    __m256 c2 = _mm256_setzero_ps();
-    __m256 c3 = _mm256_setzero_ps();
-    __m256 c4 = _mm256_setzero_ps();
-    __m256 c5 = _mm256_setzero_ps();
-    __m256 c6 = _mm256_setzero_ps();
-    __m256 c7 = _mm256_setzero_ps();
+    // Load existing C values (accumulate into C, not overwrite)
+    __m256 c0 = _mm256_loadu_ps(C + 0 * ldc);
+    __m256 c1 = _mm256_loadu_ps(C + 1 * ldc);
+    __m256 c2 = _mm256_loadu_ps(C + 2 * ldc);
+    __m256 c3 = _mm256_loadu_ps(C + 3 * ldc);
+    __m256 c4 = _mm256_loadu_ps(C + 4 * ldc);
+    __m256 c5 = _mm256_loadu_ps(C + 5 * ldc);
+    __m256 c6 = _mm256_loadu_ps(C + 6 * ldc);
+    __m256 c7 = _mm256_loadu_ps(C + 7 * ldc);
 
-    // Process K in chunks of 8 (the microkernel expects 8 columns in B)
+    // Process K in chunks of 8
     for (size_t k_base = 0; k_base < K; k_base += 8) {
         size_t k_end = std::min(k_base + 8, K);
         size_t k_chunk = k_end - k_base;
 
         for (size_t kk = 0; kk < k_chunk; ++kk) {
             size_t k = k_base + kk;
-            // B is column-major [K, 8], so column kk in this chunk is at B + kk * 8
+            // B is row-major [K, 8], so row kk in this chunk is at B + kk * 8
             __m256 bcol = _mm256_loadu_ps(B + kk * 8);
 
             // A is row-major [8, K], so row i, col k is at A[i*K + k]
@@ -539,7 +536,7 @@ static void matmul_microkernel_8x8(const float* A, const float* B, float* C, siz
             __m256 a7 = _mm256_set1_ps(A[7 * K + k]);
             c7 = _mm256_fmadd_ps(a7, bcol, c7);
         }
-        // Advance B pointer by 8*8 = 64 elements (8 columns × 8 elements each)
+        // Advance B pointer by 8*8 = 64 elements (8 rows × 8 elements each)
         B += 64;
     }
 

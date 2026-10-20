@@ -47,6 +47,9 @@ public:
     const float* data() const;
     float& operator()(std::initializer_list<std::size_t> idx);
 
+    // Static factory methods
+    static Tensor empty(std::vector<std::size_t> shape, bool requires_grad = false);
+
     // Autograd interface
     bool requires_grad() const;
     void set_requires_grad(bool val);
@@ -66,6 +69,10 @@ public:
     Tensor to_float() const;
     Tensor sum(std::size_t dim, bool keepdim = false) const;
     Tensor sum() const;
+    Tensor mean() const;
+    Tensor max(std::size_t dim) const;
+    Tensor argmax(std::size_t dim) const;
+    Tensor argmin(std::size_t dim) const;
     Tensor clamp(const Tensor& min, const Tensor& max) const;
     Tensor transpose() const; // assumes 2D tensor
     Tensor matmul(const Tensor& other) const; // assumes 2D tensors

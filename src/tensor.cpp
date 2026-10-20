@@ -69,6 +69,13 @@ Tensor Tensor::arange(std::size_t start, std::size_t end)
     return result;
 }
 
+Tensor Tensor::empty(std::vector<std::size_t> shape, bool requires_grad)
+{
+    Tensor result(shape, requires_grad);
+    // Don't initialize the data - leave it uninitialized
+    return result;
+}
+
 // Accessors
 std::size_t Tensor::numel() const
 {
@@ -433,6 +440,34 @@ Tensor Tensor::sum() const {
         return Tensor();
     }
     return autograd::sum_all(*this);
+}
+
+Tensor Tensor::mean() const {
+    if (!impl_) {
+        return Tensor();
+    }
+    return autograd::mean(*this);
+}
+
+Tensor Tensor::max(std::size_t dim) const {
+    if (!impl_) {
+        return Tensor();
+    }
+    return autograd::max(*this, dim);
+}
+
+Tensor Tensor::argmax(std::size_t dim) const {
+    if (!impl_) {
+        return Tensor();
+    }
+    return autograd::argmax(*this, dim);
+}
+
+Tensor Tensor::argmin(std::size_t dim) const {
+    if (!impl_) {
+        return Tensor();
+    }
+    return autograd::argmin(*this, dim);
 }
 
 float Tensor::item() const {
